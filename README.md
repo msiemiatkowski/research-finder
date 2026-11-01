@@ -71,3 +71,9 @@ Find the studies and the data behind them, in 40 languages, and keep everything 
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, OpenAlex keyword statistics),
 `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, files to save), `drive.js` (Google sign-in and the
 folder structure), `main.js` (the page) and `util.js`.
+
+## Creator
+
+Research Finder is made by **Maciej Siemiątkowski**, researcher at the Faculty of Psychology, University of Warsaw.
+Questions, ideas or problems: [maciej.siemiatkowski@psych.uw.edu.pl](mailto:maciej.siemiatkowski@psych.uw.edu.pl), or
+open an issue in this repository.

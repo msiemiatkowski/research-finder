@@ -550,8 +550,9 @@ function renderAbout() {
     h("h3", {}, "Privacy"),
     h("p", {}, "There is no server behind this site, no account and no tracking. Your searches go from your browser straight to the services above. See the ", h("a", { href: "privacy.html" }, "privacy policy"), "."),
     c.name ? h("h3", {}, "About the creator") : null,
-    c.name ? h("p", {}, h("strong", {}, c.name), c.role ? `, ${c.role}` : "", c.affiliation ? `, ${c.affiliation}` : "", ". ", c.bio || "") : null,
-    c.email ? h("p", {}, "Questions, ideas or problems: ", h("a", { href: `mailto:${c.email}` }, c.email), ".") : null,
+    c.name ? h("p", {}, h("strong", {}, c.name), [c.role, c.affiliation].filter(Boolean).length ? `, ${[c.role, c.affiliation && `at the ${c.affiliation}`].filter(Boolean).join(" ")}.` : ".") : null,
+    c.bio ? h("p", {}, c.bio) : null,
+    c.email ? h("p", {}, "Questions, ideas or problems: write to ", h("a", { href: `mailto:${c.email}` }, c.email), ".") : null,
     h("p", {}, link("https://github.com/msiemiatkowski/research-finder", "Source code on GitHub"), " · ", h("a", { href: "privacy.html" }, "Privacy policy")));
 }
 
@@ -592,8 +593,16 @@ function fromHash() {
   return null;
 }
 
+function renderCredit() {
+  const c = CONFIG.creator || {};
+  if (!c.name) return;
+  fill($("#foot-credit"), "Created by ", h("a", { href: "#about", onclick: (e) => { e.preventDefault(); renderAbout(); $("#about").hidden = false; $("#about").scrollIntoView({ behavior: "smooth", block: "start" }); } }, c.name),
+    c.affiliation ? ` (${c.affiliation})` : "", c.email ? [" · ", h("a", { href: `mailto:${c.email}` }, c.email)] : null);
+}
+
 /* ------------------------------------------------------------------ start */
 function start() {
+  renderCredit();
   const panel = fromHash();
   renderTabs();
   renderFilters();
