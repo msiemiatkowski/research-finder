@@ -93,32 +93,46 @@ export async function getJSON(url, { timeout = 20000, headers, cacheable = true 
   return data;
 }
 
-/* OpenAlex answers at most about one search a second without a key (five with one), and HTTP 429 to bursts:
-   its requests go one at a time, spaced out, and a refused one is tried once more. */
-let oaChain = Promise.resolve(), oaLast = 0;
-export function openalexJSON(url, opts) {
-  if (cache.has(url)) return Promise.resolve(cache.get(url));
+/* OpenAlex answers at most about one search a second without a key (five with one), and HTTP 429 to bursts: its
+   requests start spaced out (they may overlap), a refused one waits as long as OpenAlex asks, and one that failed on
+   OpenAlex's side (HTTP 5xx, as long searches sometimes do) is tried once more. */
+let oaNext = 0;
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+export async function openalexJSON(url, opts) {
+  if (cache.has(url)) return cache.get(url);
   const gap = /[?&]api_key=/.test(url) ? 250 : 1100;
-  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
-  const run = async () => {
-    await pause(Math.max(0, oaLast + gap - Date.now()));
-    oaLast = Date.now();
-    try {
-      return await getJSON(url, opts);
-    } catch (e) {
-      if (e.status !== 429) throw e;
+  const slot = async () => {
+    const at = Math.max(Date.now(), oaNext);
+    oaNext = at + gap;
+    await pause(at - Date.now());
+  };
+  await slot();
+  try {
+    return await getJSON(url, opts);
+  } catch (e) {
+    if (e.status === 429 && /insufficient budget|budget is used up/i.test(e.detail || "")) {
+      e.budget = true;                // the day's free allowance is spent: trying again does not help
+      throw e;
+    }
+    if (e.status === 429) {
       // "Anonymous search is temporarily rate-limited while the search cluster is under elevated load":
       // OpenAlex says how long to wait
       const wait = Math.min(45, Number((/"retryAfter"\s*:\s*(\d+)/.exec(e.detail || "") || [])[1]) || 3);
       if (wait > 3) toast(`OpenAlex is busy: trying again in ${wait} seconds. A free OpenAlex key (Settings) avoids this.`, wait * 1000);
-      await pause(wait * 1000);
-      oaLast = Date.now();
-      return getJSON(url, opts);
+      oaNext = Math.max(oaNext, Date.now() + wait * 1000);
+    } else if (!(e.status >= 500)) {
+      throw e;
     }
-  };
-  const p = oaChain.then(run, run);
-  oaChain = p.catch(() => {});
-  return p;
+    await slot();
+    return getJSON(url, opts);
+  }
+}
+
+/* What to tell people when OpenAlex refuses a search ("" when it did not). */
+export function openalexRefusal(e) {
+  if (e.budget) return "The free OpenAlex allowance for your network is used up for today; it renews at midnight UTC. A free OpenAlex key (Settings) has an allowance of its own.";
+  if (e.status === 429 || e.status === 403) return "OpenAlex is limiting free searches right now. Add a free OpenAlex key under Settings, or try again in a minute.";
+  return "";
 }
 
 let toastTimer = null;

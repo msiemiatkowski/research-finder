@@ -1,18 +1,19 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js";
-import { LANGS, LANG_NAMES, SRC_LABEL, parseInput, makeGroup, enrich, activeTerms } from "./terms.js";
-import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, semanticScholarPdfs, datasetFiles } from "./sources.js";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js";
+import { CONFIG } from "../config.js?v=23";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=23";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=23";
+import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles } from "./sources.js?v=23";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=23";
 
-const LIVE_WAIT = 7000;           // longest wait for the terms studies use before searching anyway
-const PAGE_SIZE = { studies: 25, data: 10 };
-const emptyFilters = () => ({ kinds: [], langs: [], from: null, to: null, open: false, repos: [] });
+const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
+const PAGE_SIZE = { studies: 25, data: 8 };
+const emptyFilters = () => ({ kinds: [], langs: [], from: null, to: null, open: false, repos: [], fulltext: false });
 const state = {
   input: "", groups: [], mode: "all", tab: "studies", sort: "rel",
   langsOff: new Set(local.get("langsOff", [])), filters: emptyFilters(), showAllLangs: false,
 };
 let results = [], total = 0, more = false, page = 1, notes = [], extra = {}, searchSeq = 0, highlight = null;
+const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 
 /* ------------------------------------------------------------------ searching */
 const groupsForSearch = () => state.groups.map((g) => activeTerms(g, state.langsOff)).filter((ts) => ts.length);
@@ -44,7 +45,7 @@ async function runSearch() {
     return;
   }
   renderToolbar("Searching…");
-  fill($("#results"), h("li", { class: "loading" }, h("span", { class: "spinner", "aria-hidden": "true" }), `Searching ${src.note}…`));
+  fill($("#results"), h("li", { class: "loading" }, spinner(), `Searching ${src.note}…`));
   $("#more").hidden = true;
   try {
     const res = await src.search(q, page, PAGE_SIZE[state.tab]);
@@ -80,7 +81,7 @@ function show(res, first) {
   results.push(...fresh);
   total = res.total;
   more = res.more;
-  extra = { totals: res.totals, dropped: res.dropped };
+  extra = { totals: res.totals, dropped: res.dropped, parts: res.parts };
   notes = [...new Set([...(first ? [] : notes), ...(res.notes || [])])];
   const list = $("#results");
   if (first) fill(list);
@@ -100,17 +101,37 @@ function emptyMessage() {
 }
 
 /* ------------------------------------------------------------------ keywords */
+let renderQueued = false;
+function renderSoon() {
+  if (renderQueued) return;
+  renderQueued = true;
+  setTimeout(() => { renderQueued = false; renderGroups(); }, 60);
+}
+
+function preparing() {
+  document.body.classList.add("searching");
+  $("#toolbar").hidden = true;
+  $("#more").hidden = true;
+  fill($("#results"), h("li", { class: "loading" }, spinner(),
+    "Preparing the search: the wordings studies use for your keywords, and their translations into 39 languages…"));
+}
+
+/* Each keyword is looked up (Wikidata, the studies, the translations) before the search, so that it runs once with
+   all the terms. */
 async function setQuery(text) {
   state.input = String(text || "").trim();
   $("#q").value = state.input;
   $("#about").hidden = true;
-  state.groups = parseInput(state.input).map(makeGroup);
+  const groups = state.groups = parseInput(state.input).map(makeGroup);
   renderGroups();
-  if (!state.groups.length) return search(0);
-  const all = Promise.all(state.groups.map((g) => enrich(g).then(() => { if (state.groups.includes(g)) renderGroups(); })));
+  if (!groups.length) return search(0);
+  preparing();
+  const all = Promise.all(groups.map((g) => enrich(g, { onChange: () => { if (state.groups.includes(g)) renderSoon(); } })));
   const first = await Promise.race([all.then(() => true), new Promise((r) => setTimeout(() => r(false), LIVE_WAIT))]);
+  if (state.groups !== groups) return;          // replaced by another search meanwhile
+  renderGroups();
   search(0);
-  if (!first) all.then(() => search(0));       // the terms came late: search again with them
+  if (!first) all.then(() => { if (state.groups === groups) search(0); });   // the terms came late: search again with them
 }
 
 function addKeyword(text) {
@@ -119,7 +140,7 @@ function addKeyword(text) {
   state.input = state.groups.map((g) => g.label).join(", ");
   $("#q").value = state.input;
   renderGroups();
-  Promise.all(parts.map((g) => enrich(g))).then(() => { renderGroups(); search(0); });
+  Promise.all(parts.map((g) => enrich(g, { onChange: renderSoon }))).then(() => { renderGroups(); search(0); });
 }
 
 function removeGroup(g) {
@@ -130,12 +151,26 @@ function removeGroup(g) {
   search(0);
 }
 
-function chip(t, onToggle) {
-  const where = t.lang && LANG_NAMES[t.lang] ? ` · ${LANG_NAMES[t.lang]}` : "";
+/* An English term switched on for the first time is translated too, then searched. */
+async function translateMore(g) {
+  g.stage = "Translating the new terms into 39 languages…";
+  renderGroups();
+  await translateGroup(g, { onProgress: (n, of) => { g.stage = `Translating the new terms: ${n} of ${of} languages…`; renderSoon(); } });
+  g.stage = "";
+  renderGroups();
+  search(0);
+}
+
+function chip(t, g, onToggle) {
+  const where = LANG_NAMES[t.lang] ? ` · ${LANG_NAMES[t.lang]}` : "";
+  const read = fmt((g.studies || {}).read || SAMPLE);
+  const count = t.n ? (t.src === "studies" ? ` · a keyword of ${fmt(t.n)} of the ${read} studies read` : ` · in ${fmt(t.n)} of the ${read} studies read`) : "";
+  const from = t.source && t.src === "mt" ? ` · of “${t.source}”` : "";
+  const doubt = t.doubt ? " · it did not translate back to the same meaning, so it is left out unless you add it" : "";
   return h("button", {
-    type: "button", class: `chip ${t.on ? "on" : "off"}`, "aria-pressed": String(t.on),
-    title: `${SRC_LABEL[t.src]}${where}${t.n ? ` · ${plural(t.n, "study", "studies")}` : ""} · click to ${t.on ? "leave out" : "add"}`,
-    onclick: () => { t.on = !t.on; onToggle(); },
+    type: "button", class: `chip ${t.on ? "on" : "off"}${t.doubt ? " doubt" : ""}`, "aria-pressed": String(t.on),
+    title: `${SRC_LABEL[t.src]}${where}${from}${count}${doubt} · click to ${t.on ? "leave out" : "add"}`,
+    onclick: () => { t.on = !t.on; onToggle(t); },
   }, t.text, t.n ? h("span", { class: "n" }, fmt(t.n)) : null);
 }
 
@@ -154,34 +189,44 @@ function renderGroups() {
 
 function groupCard(g) {
   const rerender = () => { renderGroups(); search(); };
-  const own = g.terms.filter((t) => t.src !== "wikidata");
-  const off = own.filter((t) => !t.on);
+  const toggled = (t) => {
+    if (t.on && !isTranslation(t) && !t.translated && g.status === "done") { t.picked = true; translateMore(g); }
+    else rerender();
+  };
+  const english = g.terms.filter((t) => !isTranslation(t));
+  const searching = english.filter((t) => t.on || (g.edit && ["you", "alias", "variant", "mt"].includes(t.src)));
+  const offered = english.filter((t) => !t.on && (t.src === "similar" || t.src === "studies"));
+  const off = english.filter((t) => !t.on);
   const card = h("div", { class: "group" }, h("div", { class: "group-head" },
     h("span", { class: "group-label" }, g.label),
     g.wikidata ? h("a", { class: "concept-badge wd", href: `https://www.wikidata.org/wiki/${g.wikidata.id}`, target: "_blank", rel: "noopener noreferrer",
       title: `Wikidata: ${g.wikidata.description || g.wikidata.label}` }, g.wikidata.label) : null,
-    g.studies ? h("span", { class: "group-meta" }, `${plural(g.studies.total, "study", "studies")} in OpenAlex`) : null,
+    g.studies ? h("span", { class: "group-meta", title: "Studies in OpenAlex with the keyword in the title or abstract" }, `${plural(g.studies.total, "study", "studies")} in OpenAlex`) : null,
     h("span", { class: "group-actions" },
       h("button", { type: "button", class: "btn btn-small", "aria-expanded": String(g.edit), onclick: () => { g.edit = !g.edit; renderGroups(); } }, g.edit ? "Done" : "Edit terms"),
       h("button", { type: "button", class: "btn btn-ghost btn-small", onclick: () => removeGroup(g), "aria-label": `Remove ${g.label}` }, "Remove"))));
-  if (g.status === "pending") card.append(h("p", { class: "note pending" }, h("span", { class: "spinner", "aria-hidden": "true" }), "Looking up the terms studies use and the translations…"));
+  if (g.status === "pending" || g.stage) card.append(h("p", { class: "note pending" }, spinner(), g.stage || "Looking up the terms…"));
   if (g.wikidata && g.wikidata.description) card.append(h("p", { class: "note" }, `Matched to “${g.wikidata.label}”: ${g.wikidata.description}. Not this meaning? Choose Edit terms and switch its synonyms and translations off.`));
   for (const n of g.notes || []) card.append(h("p", { class: "note warn" }, n));
 
-  const shown = own.filter((t) => t.on || (g.edit && (t.src === "you" || t.src === "alias")));
-  card.append(h("div", { class: "g-row" }, h("p", { class: "g-row-title" }, "Searching for"),
-    h("div", { class: "chips" }, shown.map((t) => chip(t, rerender)),
+  const variants = english.filter((t) => t.src === "variant");
+  card.append(h("div", { class: "g-row" }, h("p", { class: "g-row-title" }, "Searching for",
+    variants.length && g.studies ? h("span", { class: "g-row-hint" }, `your words${g.wikidata ? ", synonyms" : ""} and the wordings found in the ${fmt(g.studies.read)} studies that match best`) : null),
+    h("div", { class: "chips" }, searching.map((t) => chip(t, g, toggled)),
       !g.edit && off.length ? h("button", { type: "button", class: "link-btn", onclick: () => { g.edit = true; renderGroups(); } }, `${off.length} more suggestions`) : null)));
-  if (g.edit) {
-    const ts = off.filter((t) => t.src === "studies");
-    if (ts.length) card.append(h("div", { class: "g-row" }, h("p", { class: "g-row-title" }, "Keywords used in studies on this topic (OpenAlex)"), h("div", { class: "chips" }, ts.map((t) => chip(t, rerender)))));
+  if (g.edit && offered.length) {
+    card.append(h("div", { class: "g-row" }, h("p", { class: "g-row-title" }, "Related phrases and keywords in these studies",
+      h("span", { class: "g-row-hint" }, "click to search for them too")),
+      h("div", { class: "chips" }, offered.map((t) => chip(t, g, toggled)))));
   }
 
-  const tr = g.terms.filter((t) => t.src === "wikidata");
+  const tr = g.terms.filter(isTranslation);
   if (tr.length) {
     const langs = LANGS.filter((l) => tr.some((t) => t.lang === l));
     const active = langs.filter((l) => !state.langsOff.has(l));
+    const used = tr.filter((t) => t.on && !state.langsOff.has(t.lang)).length;
     const row = h("div", { class: "g-row" }, h("p", { class: "g-row-title" }, `Also in ${plural(active.length, "other language")}`,
+      h("span", { class: "g-row-hint" }, plural(used, "term")),
       g.edit ? null : h("button", { type: "button", class: "link-btn", onclick: () => { g.edit = true; renderGroups(); } }, "show all")));
     if (!g.edit) {
       const preview = active.slice(0, 6).map((l) => tr.find((t) => t.lang === l && t.on)).filter(Boolean).map((t) => t.text).join(" · ");
@@ -192,9 +237,9 @@ function groupCard(g) {
         const on = !state.langsOff.has(l);
         grid.append(h("div", { class: "tr-lang" }, h("label", {}, h("input", {
           type: "checkbox", checked: on, onchange: (e) => { setLang(l, e.target.checked); rerender(); },
-        }), LANG_NAMES[l])), h("div", { class: "chips" }, tr.filter((t) => t.lang === l).map((t) => (on ? chip(t, rerender) : h("span", { class: "chip off lang" }, t.text)))));
+        }), LANG_NAMES[l])), h("div", { class: "chips" }, tr.filter((t) => t.lang === l).map((t) => (on ? chip(t, g, rerender) : h("span", { class: "chip off lang" }, t.text)))));
       }
-      row.append(grid, h("p", { class: "note" }, "Names in other languages come from Wikidata, written by its volunteers. Check them before relying on them in a review. Unticking a language turns it off for every keyword; Settings has the full list."));
+      row.append(grid, h("p", { class: "note" }, "Names from Wikidata are written by its volunteers. The others are machine translations by Wikimedia's MinT, each translated back into English as a check: the ones that did not come back with the same meaning are marked “?” and left out. Check them before relying on them in a review. Unticking a language turns it off for every keyword; Settings has the full list."));
     }
     card.append(row);
   } else if (g.status === "done") {
@@ -274,9 +319,12 @@ function renderToolbar(status) {
   const bar = $("#toolbar");
   bar.hidden = false;
   const src = SOURCES[state.tab];
-  const count = status || `${plural(total, "result")}${state.tab === "data" && extra.totals ? ` (${Object.entries(extra.totals).map(([n, c]) => `${n} ${fmt(c)}`).join(", ")})` : ""}`;
+  const split = extra.parts > 1;
+  const count = status || (state.tab === "data" && extra.totals
+    ? `${plural(total, "result")} (${Object.entries(extra.totals).map(([n, c]) => `${n} ${fmt(c)}`).join(", ")})`
+    : `${split ? "about " : ""}${plural(total, "result")}${split ? ` · ${extra.parts} searches` : ""}`);
   fill(bar,
-    h("span", { class: "count" }, count),
+    h("span", { class: "count", title: split ? `The terms did not fit in one OpenAlex search (1,500 characters), so Research Finder made ${extra.parts} searches and put their results together. The total counts a study found by two of them twice.` : null }, count),
     h("select", { "aria-label": "Sort", onchange: (e) => { state.sort = e.target.value; search(0); } },
       src.sorts.map(([v, l]) => h("option", { value: v, selected: state.sort === v }, l))),
     h("button", { type: "button", class: "btn btn-small", onclick: copySearchString, title: "Copy the terms as a Boolean search string" }, "Copy search string"),
@@ -284,12 +332,16 @@ function renderToolbar(status) {
     results.length ? h("button", { type: "button", class: "btn btn-small", onclick: exportCsv, title: "Download the results shown as a spreadsheet (CSV)" }, "Export CSV") : null,
     results.length ? h("button", { type: "button", class: "btn btn-small btn-primary-soft", onclick: openSave, title: "Save the results, open PDFs and data files to your Google Drive" }, "Save to Google Drive") : null);
   const msgs = [...notes];
-  if (extra.dropped) msgs.push(`${plural(extra.dropped, "translation")} left out: ${state.tab === "studies" ? "OpenAlex takes searches of up to 1,500 characters" : "the query would be too long"}. The languages with the most research come first; choose fewer languages under Settings to control which are used.`);
+  if (extra.dropped) {
+    msgs.push(state.tab === "studies"
+      ? `${plural(extra.dropped, "term")} left out: even split into ${maxParts()} searches, the terms are longer than OpenAlex takes. ${local.get("openalexKey", "") ? "Choose fewer languages under Settings." : "A free OpenAlex key (Settings) allows up to 8 searches; or choose fewer languages."}`
+      : `${plural(extra.dropped, "term")} left out: the query would be too long for the repositories. The English terms and the languages with the most research come first.`);
+  }
   if (msgs.length) bar.append(h("div", { class: "toolbar-notes" }, msgs.map((m) => h("p", { class: "note warn" }, m))));
 }
 
 function searchString(englishOnly = false, maxLen = 100000) {
-  const groups = state.groups.map((g) => activeTerms(g, state.langsOff).filter((t) => !englishOnly || t.src !== "wikidata"));
+  const groups = state.groups.map((g) => activeTerms(g, state.langsOff).filter((t) => !englishOnly || !isTranslation(t)));
   return booleanQuery(groups.filter((ts) => ts.length), state.mode, maxLen).query;
 }
 
@@ -316,7 +368,7 @@ function externalMenu() {
 /* One row per result, the same columns for every source. */
 const HEADER = ["No.", "Title", "Authors", "Year", "Type", "Journal or repository", "DOI", "Link", "Open PDF", "Language", "Keywords", "Source", "Citations", "License", "Size"];
 const rowOf = (r, i) => [i + 1, r.title, r.authors, r.year || "", KIND_NAMES[r.kind] || "", r.venue, r.doi ? `https://doi.org/${r.doi}` : "",
-  r.url, r.pdf, r.lang, (r.keywords || []).join("; "), r.source, r.cited || "", r.license || "", r.size || ""];
+  r.url || r.landing || "", r.pdf, r.lang, (r.keywords || []).join("; "), r.source, r.cited || "", r.license || "", r.size || ""];
 
 function exportCsv() {
   const cell = (v) => { const s = String(v == null ? "" : v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -330,74 +382,130 @@ function exportCsv() {
 }
 
 /* ------------------------------------------------------------------ saving to Google Drive */
+const MB = 1e6;
+const sizeName = (bytes) => (bytes >= 1e9 ? `${bytes / 1e9} GB` : `${bytes / MB} MB`);
+
 function openSave() {
   const d = $("#save");
   if (!driveConfigured()) { toast("Saving to Google Drive is not set up on this copy of the site.", 4000); return; }
   const studiesTab = state.tab === "studies";
-  const max = studiesTab ? 200 : 100;
-  const counts = [...new Set([results.length, 50, 100, max].filter((n) => n <= Math.max(results.length, Math.min(total, max))))].sort((a, b) => a - b);
-  const howMany = h("select", { id: "save-count" }, counts.map((n) => h("option", { value: n, selected: n === Math.min(100, Math.max(...counts)) }, n === results.length ? `${n} (the ones shown)` : `the first ${n}`)));
+  // OpenAlex pages 200 studies at a time; without a key, its daily allowance covers about 2,000 a day
+  const most = Math.min(total, studiesTab && !local.get("openalexKey", "") ? 2000 : 10000);
+  const counts = [...new Set([results.length, 100, 500, 1000, 2000, 5000, most].filter((n) => n && n <= Math.max(results.length, most)))].sort((a, b) => a - b);
+  const pick = counts.filter((n) => n <= 1000).pop() || counts[0];
+  const howMany = h("select", { id: "save-count" }, counts.map((n) => h("option", { value: n, selected: n === pick },
+    n === results.length ? `${fmt(n)} (the ones shown)` : n === total ? `all ${fmt(n)}` : `the first ${fmt(n)}`)));
   const files = h("input", { type: "checkbox", id: "save-files", checked: true });
+  const totalLimit = h("select", { id: "save-total", "aria-label": "Size limit for all files" },
+    [500 * MB, 2e9, 5e9, 15e9].map((b) => h("option", { value: b, selected: b === 2e9 }, sizeName(b))));
+  const fileLimit = h("select", { id: "save-file", "aria-label": "Size limit for one file" },
+    [50 * MB, 250 * MB, 1e9, 2e9].map((b) => h("option", { value: b, selected: b === 250 * MB }, sizeName(b))));
   fill($("#save-body"),
     h("p", {}, "Research Finder makes a folder for this search in your Google Drive, inside “Research Finder”:"),
     h("ul", { class: "tree" },
       h("li", {}, h("strong", {}, "Results"), " — a Google Sheet: one row per result, the same columns for every source, with links to the files saved"),
+      h("li", {}, h("strong", {}, "Files"), " — a Google Sheet with every file found: its download link, and whether it was saved (and if not, why)"),
       h("li", {}, h("strong", {}, "Search details"), " — a document with your keywords, every term and translation used, the filters and the exact queries, so the search can be repeated"),
       studiesTab ? h("li", {}, h("strong", {}, "Papers/"), " — the open PDFs (also open versions found through Semantic Scholar, such as arXiv preprints)")
-        : h("li", {}, h("strong", {}, "Datasets/"), " — one folder per dataset with its open data files (Zenodo and Harvard Dataverse)")),
+        : h("li", {}, h("strong", {}, "Datasets/"), " — one folder per dataset with its open data files")),
     h("p", { class: "save-row" }, h("label", { for: "save-count" }, "Save "), howMany, h("span", {}, ` of ${fmt(total)} results`)),
-    h("p", { class: "save-row" }, h("label", {}, files, studiesTab ? " Save the open PDFs" : " Save the open data files"),
-      h("span", { class: "note" }, studiesTab ? " (up to 100 PDFs, 50 MB each)" : " (up to 30 datasets, 50 MB per file, 500 MB in all)")),
-    h("p", { class: "note" }, "Many publishers do not let browsers download their PDFs; those stay as links in the sheet. Your Drive needs to be connected: Google asks you to allow access the first time."),
+    h("p", { class: "save-row" }, h("label", {}, files, studiesTab ? " Save the open PDFs" : " Save the open data files")),
+    h("p", { class: "save-row" }, h("span", {}, "Up to"), totalLimit, h("span", {}, "in all, files up to"), fileLimit, h("span", {}, "each")),
+    h("p", { class: "note" }, studiesTab
+      ? "Many publishers do not let browsers download their PDFs; those stay as links in the sheets."
+      : "Zenodo and Harvard Dataverse files are copied into your Drive. OSF and figshare do not let browsers download files, so theirs are listed with their download links in “Files”; for other repositories the sheet links to the dataset's page."),
+    h("p", { class: "note" }, "A large save takes a while: keep this tab open. Your Drive needs to be connected: Google asks you to allow access the first time, and to connect again if a save takes more than an hour."),
     h("div", { class: "save-actions" },
-      h("button", { type: "button", class: "btn btn-primary", id: "save-go", onclick: () => runSave(Number(howMany.value), files.checked) }, "Save to my Drive"),
-      h("button", { type: "button", class: "btn btn-ghost", onclick: () => d.close() }, "Cancel")),
+      h("button", { type: "button", class: "btn btn-primary", id: "save-go", onclick: () => runSave(Number(howMany.value), files.checked, Number(fileLimit.value), Number(totalLimit.value)) }, "Save to my Drive"),
+      h("button", { type: "button", class: "btn btn-ghost", onclick: () => d.close() }, "Close")),
+    h("div", { id: "save-signin", class: "save-progress" }),
     h("div", { id: "save-progress", class: "save-progress", role: "status", "aria-live": "polite" }));
   if (!d.open) d.showModal();
 }
 
-async function runSave(count, withFiles) {
-  const progress = (m) => fill($("#save-progress"), h("span", { class: "spinner", "aria-hidden": "true" }), m);
+async function pool(items, n, fn) {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (next < items.length) await fn(items[next++]);
+  }));
+}
+
+/* The first `count` results in the order shown, with further pages as needed (200 studies a page). */
+async function collect(count, progress) {
+  if (count <= results.length) return results.slice(0, count);
+  const src = SOURCES[state.tab], q = query();
+  if (state.tab === "data") {
+    progress(`Getting the first ${fmt(count)} datasets…`);
+    const repos = REPO_NAMES.filter((n) => !q.filters.repos.length || q.filters.repos.includes(n)).length;
+    return (await src.search(q, 1, Math.min(count, Math.ceil(count / repos) * 2))).items.slice(0, count);
+  }
+  const rows = [], seen = new Set();
+  for (let p = 1; rows.length < count && p <= 50; p++) {
+    progress(`Getting the results: ${fmt(rows.length)} of ${fmt(count)}…`);
+    const res = await src.search(q, p, 200);
+    for (const r of res.items) if (!seen.has(r.key)) { seen.add(r.key); rows.push(r); }
+    if (!res.more) break;
+  }
+  return rows.slice(0, count);
+}
+
+const repoOf = (url) => (/osf\.io/.test(url) ? "OSF" : /figshare/.test(url) ? "figshare" : /zenodo/.test(url) ? "Zenodo" : /dataverse/.test(url) ? "Harvard Dataverse" : "");
+
+async function runSave(count, withFiles, maxFile, maxTotal) {
+  const progress = (m) => fill($("#save-progress"), spinner(), m);
   const go = $("#save-go");
   go.disabled = true;
   try {
     if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
-    let rows = results.slice(0, count);
-    if (count > results.length) {
-      progress(`Getting the first ${count} results…`);
-      rows = (await SOURCES[state.tab].search(query(), 1, count)).items.slice(0, count);
-    }
+    const rows = await collect(count, progress);
     const jobs = [];
     const name = (r) => `${((r.authors || "").split(/[;,]/)[0].trim().split(" ").pop() || "study")}_${r.year || "n.d."}_${r.title.slice(0, 70)}`;
     if (withFiles && state.tab === "studies") {
       progress("Looking for open PDFs…");
-      let s2 = {};
-      try { s2 = await semanticScholarPdfs(rows.map((r) => (r.doi || "").toLowerCase())); } catch { /* optional */ }
+      const s2 = {};
+      const dois = rows.map((r) => (r.doi || "").toLowerCase()).filter(Boolean);
+      for (let i = 0; i < dois.length; i += 500) {
+        try { Object.assign(s2, await semanticScholarPdfs(dois.slice(i, i + 500))); } catch { /* optional */ }
+      }
       rows.forEach((r, i) => {
         const urls = [...new Set([safeUrl(r.pdf), ...(s2[(r.doi || "").toLowerCase()] || [])].filter(Boolean))];
-        if (urls.length && jobs.length < 100) jobs.push({ row: i, kind: "paper", urls, name: `${name(r)}.pdf`, title: r.title });
+        if (urls.length) jobs.push({ row: i, kind: "paper", urls, name: `${name(r)}.pdf`, title: r.title, repo: r.venue || "" });
       });
+      await pool(jobs, 4, async (j) => { j.urls = await pdfLinks(j.urls); });
     }
     if (withFiles && state.tab === "data") {
-      for (const [i, r] of rows.slice(0, 30).entries()) {
-        progress(`Listing the files of dataset ${i + 1} of ${Math.min(rows.length, 30)}…`);
-        let files = [];
-        try { files = await datasetFiles(r); } catch { /* listed as a link only */ }
-        for (const f of files.filter((x) => !x.size || x.size <= 50e6).slice(0, 20)) {
-          jobs.push({ row: i, kind: "data", urls: [f.url], name: f.name, dataset: `${r.year || "n.d."} ${r.title.slice(0, 80)}`, title: r.title });
+      let listed = 0;
+      const lists = rows.map(() => []);
+      await pool(rows.map((r, i) => [r, i]), 4, async ([r, i]) => {
+        try { lists[i] = await datasetFiles(r); } catch { /* listed as a link only */ }
+        progress(`Listing the files of the datasets: ${fmt(++listed)} of ${fmt(rows.length)}…`);
+      });
+      rows.forEach((r, i) => {
+        for (const f of lists[i]) {
+          jobs.push({ row: i, kind: "data", urls: [f.url], name: f.name, size: f.size || 0, copy: f.copy !== false, repo: repoOf(f.url) || r.source,
+            dataset: `${r.year || "n.d."} ${r.title.slice(0, 80)}`, title: r.title });
         }
-      }
+      });
     }
     const title = `${state.input} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
     const res = await saveSearch({
-      title, header: HEADER, rows: rows.map(rowOf), jobs, maxFile: 50e6, maxTotal: 500e6, onProgress: progress,
+      title, header: HEADER, rows: rows.map(rowOf), jobs, maxFile, maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
       detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats),
+      onSignIn: () => new Promise((resolve, reject) => {
+        fill($("#save-signin"), h("p", { class: "note warn" }, "Google's sign-in has run out (it lasts an hour). "),
+          h("button", { type: "button", class: "btn btn-small btn-primary", onclick: async () => {
+            try { await connect(); fill($("#save-signin")); resolve(); } catch (e) { reject(e); }
+          } }, "Connect again and continue"));
+      }),
     });
-    const filesNote = withFiles ? ` and ${plural(res.papers + res.dataFiles, "file")} (${(res.bytes / 1e6).toFixed(1)} MB)` : "";
-    fill($("#save-progress"), h("p", {}, h("strong", {}, "Saved: "), `${plural(rows.length, "result")}${filesNote}. `,
-      link(res.folder, "Open the folder"), " · ", link(res.sheet, "Results"), " · ", link(res.doc, "Search details"),
-      res.failed.length ? h("span", { class: "note" }, ` ${plural(res.failed.length, "file")} could not be saved; the reasons are in the search details.`) : null));
-    fill($("#drive-result"), h("p", {}, "Saved in your Google Drive: ", link(res.folder, "the folder"), " · ", link(res.sheet, "Results"), " · ", link(res.doc, "Search details")));
+    const listedOnly = res.failed.filter((j) => j.copy === false).length;
+    const notSaved = res.failed.length - listedOnly;
+    const filesNote = withFiles ? ` and ${plural(res.papers + res.dataFiles, "file")} (${(res.bytes / MB).toFixed(1)} MB)` : "";
+    const links = () => [link(res.folder, "Open the folder"), " · ", link(res.sheet, "Results"), res.files ? [" · ", link(res.files, "Files")] : null, " · ", link(res.doc, "Search details")];
+    fill($("#save-progress"), h("p", {}, h("strong", {}, "Saved: "), `${plural(rows.length, "result")}${filesNote}. `, links(),
+      listedOnly ? h("span", { class: "note" }, ` ${plural(listedOnly, "file")} from OSF or figshare ${listedOnly === 1 ? "is" : "are"} listed with ${listedOnly === 1 ? "its" : "their"} download link in “Files”.`) : null,
+      notSaved ? h("span", { class: "note" }, ` ${plural(notSaved, "file")} could not be saved; “Files” says why.`) : null));
+    fill($("#drive-result"), h("p", {}, "Saved in your Google Drive: ", links()));
     $("#drive-result").hidden = false;
   } catch (e) {
     fill($("#save-progress"), h("p", { class: "note warn" }, `Not saved: ${e.message}`));
@@ -416,24 +524,41 @@ function detailsHtml(nRows, nJobs, stats) {
     f.kinds.length ? `Types: ${f.kinds.map((k) => KIND_NAMES[k]).join(", ")}` : "",
     f.from || f.to ? `Years: ${f.from || "…"}–${f.to || "…"}` : "",
     f.open ? "Open access only" : "",
+    f.fulltext ? "Full texts searched too" : "",
     f.langs.length ? `Languages of the studies: ${f.langs.map((l) => LANG_NAMES[l] || l).join(", ")}` : "",
     f.repos.length ? `Repositories: ${f.repos.join(", ")}` : "",
   ].filter(Boolean);
+  const list = (ts, withCount) => ts.map((t) => esc(t.text) + (withCount && t.n ? ` (${t.n})` : "")).join("; ");
+  const named = (ts) => ts.map((t) => `${esc(t.text)} (${esc(LANG_NAMES[t.lang] || t.lang)})`).join("; ");
   const groups = state.groups.map((g) => {
     const used = activeTerms(g, state.langsOff);
-    const english = used.filter((t) => t.src !== "wikidata").map((t) => esc(t.text));
-    const tr = used.filter((t) => t.src === "wikidata").map((t) => `${esc(t.text)} (${esc(LANG_NAMES[t.lang] || t.lang)})`);
+    const of = (srcs) => used.filter((t) => !isTranslation(t) && srcs.includes(t.src));
+    const wd = used.filter((t) => isTranslation(t) && t.src === "wikidata"), mt = used.filter((t) => isTranslation(t) && t.src === "mt");
+    const doubted = g.terms.filter((t) => t.doubt && !t.on).length;
     return `<h3>${esc(g.label)}</h3>`
       + (g.wikidata ? `<p>Matched to the Wikidata item <a href="https://www.wikidata.org/wiki/${g.wikidata.id}">${esc(g.wikidata.label)}</a>: ${esc(g.wikidata.description)}</p>` : "")
-      + (g.studies ? `<p>Studies in OpenAlex for this keyword: ${fmt(g.studies.total)}</p>` : "")
-      + `<p><b>Terms searched:</b> ${english.join("; ")}</p>`
-      + (tr.length ? `<p><b>In other languages:</b> ${tr.join("; ")}</p>` : "");
+      + (g.studies ? `<p>Studies in OpenAlex with the keyword in the title or abstract: ${fmt(g.studies.total)}; the ${fmt(g.studies.read)} that match best were read for the wordings below.</p>` : "")
+      + `<p><b>Your words:</b> ${list(of(["you"]))}</p>`
+      + (of(["alias", "mt"]).length ? `<p><b>Synonyms (Wikidata) and English translation:</b> ${list(of(["alias", "mt"]))}</p>` : "")
+      + (of(["variant"]).length ? `<p><b>Wordings used in studies</b> (in how many of the studies read): ${list(of(["variant"]), true)}</p>` : "")
+      + (of(["similar", "studies"]).length ? `<p><b>Related phrases and keywords added:</b> ${list(of(["similar", "studies"]), true)}</p>` : "")
+      + (wd.length ? `<p><b>Names in other languages (Wikidata):</b> ${named(wd)}</p>` : "")
+      + (mt.length ? `<p><b>Machine translations</b> (Wikimedia MinT, each translated back into English as a check): ${named(mt)}</p>` : "")
+      + (doubted ? `<p>${fmt(doubted)} machine translations did not translate back to the same meaning and were left out.</p>` : "");
   }).join("");
   const q = query();
-  const queries = state.tab === "studies"
-    ? `<p><b>OpenAlex</b> (search in titles, abstracts and full texts):</p><p><code>${esc(booleanQuery(q.groups, q.mode, 1450).query)}</code></p>`
-    : `<p><b>DataCite</b>:</p><p><code>${esc(booleanQuery(q.groups, q.mode, 1500).query)}</code></p><p><b>Zenodo and Harvard Dataverse</b>:</p><p><code>${esc(booleanQuery(q.groups, q.mode, 600).query)}</code></p>`;
-  const failed = stats.failed.slice(0, 60).map((j) => `<li>${esc(j.title || j.name)} — ${esc(j.name)}: ${esc(j.why)}</li>`).join("");
+  let queries;
+  if (state.tab === "studies") {
+    const { parts, dropped } = SOURCES.studies.queries(q);
+    queries = `<p><b>OpenAlex</b> (search in titles and abstracts${f.fulltext ? ", and full texts" : ""})${parts.length > 1 ? `, as ${parts.length} searches whose results were put together, because OpenAlex takes up to 1,500 characters` : ""}:</p>`
+      + parts.map((s, i) => `<p>${parts.length > 1 ? `Search ${i + 1}: ` : ""}<code>${esc(s)}</code></p>`).join("")
+      + (dropped ? `<p>${fmt(dropped)} terms did not fit and were left out.</p>` : "");
+  } else {
+    queries = REPO_NAMES.filter((n) => !f.repos.length || f.repos.includes(n))
+      .map((n) => `<p><b>${esc(n)}</b>:</p>${repoQueries(n, q.groups, q.mode).parts.map((s) => `<p><code>${esc(s)}</code></p>`).join("")}`).join("");
+  }
+  const failed = stats.failed.filter((j) => j.copy !== false).slice(0, 60).map((j) => `<li>${esc(j.title || j.name)} — ${esc(j.name)}: ${esc(j.why)}</li>`).join("");
+  const listedOnly = stats.failed.filter((j) => j.copy === false).length;
   return `<html><head><meta charset="utf-8"></head><body>
 <h1>Search details</h1>
 <p>Saved with Research Finder (<a href="${esc(location.origin + location.pathname)}">${esc(location.origin + location.pathname)}</a>) on ${esc(when.toLocaleString("en-GB"))}.</p>
@@ -443,7 +568,7 @@ function detailsHtml(nRows, nJobs, stats) {
 <h2>Queries sent</h2>${queries}
 <h2>What was saved</h2>
 <p>${fmt(total)} results found; the first ${fmt(nRows)} saved in the sheet “Results”, in the order shown (${esc((src.sorts.find(([v]) => v === state.sort) || ["", "Best match"])[1])}).</p>
-<p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / 1e6).toFixed(1)} MB), of ${fmt(nJobs)} tried.</p>
+<p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / MB).toFixed(1)} MB), of ${fmt(nJobs)} found; the sheet “Files” lists every one.${listedOnly ? ` ${fmt(listedOnly)} are in repositories that do not let browsers download files (OSF, figshare): the sheet has their download links.` : ""}</p>
 ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
 <p>Repeat the search: ${esc(location.href)}</p>
 </body></html>`;
@@ -454,13 +579,13 @@ function renderTabs() {
   fill($("#tabs"), Object.values(SOURCES).map((s) => h("button", {
     type: "button", role: "tab", "aria-selected": String(state.tab === s.id), class: "tab", title: s.note,
     onclick: () => { if (state.tab !== s.id) { state.tab = s.id; state.sort = "rel"; state.filters = emptyFilters(); renderTabs(); search(0); } },
-  }, s.name, h("span", { class: "tab-note" }, s.id === "studies" ? "OpenAlex" : "DataCite · Zenodo · Dataverse"))));
+  }, s.name, h("span", { class: "tab-note" }, s.id === "studies" ? "OpenAlex" : "DataCite · Zenodo · Dataverse · OSF · OpenAIRE"))));
 }
 
 function renderFilters() {
   const src = SOURCES[state.tab], f = state.filters;
   const has = (x) => src.filters.includes(x);
-  const opt = (label, checked, onchange) => h("label", { class: "f-option" }, h("input", { type: "checkbox", checked, onchange }), h("span", {}, label));
+  const opt = (label, checked, onchange, disabled) => h("label", { class: "f-option" }, h("input", { type: "checkbox", checked, onchange, disabled }), h("span", {}, label));
   const toggleIn = (arr, v, on) => { const i = arr.indexOf(v); if (on && i < 0) arr.push(v); if (!on && i >= 0) arr.splice(i, 1); };
   const now = new Date().getFullYear();
   const yearInput = (key) => h("input", {
@@ -472,6 +597,10 @@ function renderFilters() {
   const langs = state.showAllLangs ? langCodes : langCodes.slice(0, 8);
   for (const l of f.langs) if (!langs.includes(l)) langs.push(l);
   const sections = [];
+  if (has("fulltext")) {
+    sections.push(h("div", { class: "f-section" }, h("h3", {}, "Search in"),
+      opt("Titles and abstracts", true, null, true), opt("Full texts too (more results, less precise, slower)", f.fulltext, (e) => { f.fulltext = e.target.checked; search(0); })));
+  }
   if (has("kinds")) {
     sections.push(h("div", { class: "f-section" }, h("h3", {}, "Type"),
       src.kinds.map((k) => opt(KIND_NAMES[k], f.kinds.includes(k), (e) => { toggleIn(f.kinds, k, e.target.checked); search(0); }))));
@@ -491,7 +620,7 @@ function renderFilters() {
       h("button", { type: "button", class: "link-btn f-more", onclick: () => { state.showAllLangs = !state.showAllLangs; renderFilters(); } },
         state.showAllLangs ? "fewer languages" : `all ${langCodes.length} languages`)));
   }
-  const active = f.kinds.length || f.langs.length || f.from || f.to || f.open || f.repos.length;
+  const active = f.kinds.length || f.langs.length || f.from || f.to || f.open || f.repos.length || f.fulltext;
   if (active) sections.push(h("div", { class: "f-section" }, h("button", { type: "button", class: "btn btn-small", onclick: () => { state.filters = emptyFilters(); search(0); } }, "Clear filters")));
   fill($("#filters-body"), sections);
 }
@@ -511,19 +640,19 @@ function openSettings() {
         " Research Finder can only see the files it saves, in a folder called “Research Finder”.");
   fill($("#settings-body"),
     h("h3", {}, "Search in these languages"),
-    h("p", { class: "note" }, "Names of your keywords in these languages are added to every search. Fewer languages make shorter queries."),
+    h("p", { class: "note" }, "The names and translations of your keywords in these languages are added to every search. Fewer languages make shorter queries."),
     h("div", { class: "f-quick" },
       h("button", { type: "button", class: "btn btn-small", onclick: () => { LANGS.forEach((l) => setLang(l, true)); openSettings(); } }, "All"),
       h("button", { type: "button", class: "btn btn-small", onclick: () => { LANGS.forEach((l) => setLang(l, false)); openSettings(); } }, "English only")),
     langs,
     h("h3", {}, "Google Drive"), drive,
     h("h3", {}, h("label", { for: "set-key" }, "OpenAlex key (optional)")),
-    h("p", { class: "note" }, "Without a key, OpenAlex shares a free allowance of about 100 searches a day among everyone on your network, and limits free searches when it is busy. A free personal key (",
-      link("https://openalex.org/settings/api", "get one"), ") allows about 1,000 and is not slowed down. It is kept only in this browser."), key,
+    h("p", { class: "note" }, "Without a key, OpenAlex shares a free allowance of about 100 searches a day among everyone on your network, and limits free searches when it is busy. Each keyword takes one search to read how studies word it, and a search with many translations is split into up to 3 OpenAlex searches. A free personal key (",
+      link("https://openalex.org/settings/api", "get one"), ") allows ten times more, up to 8 searches for one, and is not slowed down. It is kept only in this browser."), key,
     h("h3", {}, h("label", { for: "set-mail" }, "Your email (optional)")),
     h("p", { class: "note" }, "Sent only to OpenAlex with your searches, as their guidelines ask; kept only in this browser."), mail,
     h("h3", {}, "Other services"),
-    h("p", { class: "note" }, "No other keys are needed. DataCite, Zenodo, Harvard Dataverse and Wikidata are free and open. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one."));
+    h("p", { class: "note" }, "No other keys are needed. Wikidata, Wikimedia's MinT translation, DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE are free and open. Machine translations are remembered in this browser, so each term is translated only once. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one."));
   d.onclose = () => {
     local.set("openalexKey", key.value.trim());
     local.set("email", mail.value.trim());
@@ -539,14 +668,18 @@ function renderAbout() {
     h("p", { class: "lead-sm" }, "Research Finder is a free tool for researchers who need more than a list of papers: it finds studies and the datasets behind them, in many languages, and saves everything it finds to your Google Drive in a clear, repeatable structure."),
     h("h3", {}, "What makes it different"),
     h("ul", {},
-      h("li", {}, h("strong", {}, "Datasets, not only papers. "), "Studies from OpenAlex (about 270 million works) and datasets from DataCite, Zenodo and Harvard Dataverse, with their open data files."),
-      h("li", {}, h("strong", {}, "Everything saved, in order. "), "Each search becomes a folder in your Drive: a sheet with one row per result in the same columns for every source, the open PDFs and data files in their own folders and linked from the sheet, and a record of exactly how you searched."),
-      h("li", {}, h("strong", {}, "In 40 languages. "), "Your keywords are expanded with their synonyms and translated, so studies written in Polish, Spanish or Japanese are found too."),
+      h("li", {}, h("strong", {}, "Datasets, not only papers. "), "Studies from OpenAlex (about 270 million works) and datasets from DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE, with their open data files."),
+      h("li", {}, h("strong", {}, "Everything saved, in order. "), "Each search becomes a folder in your Drive: a sheet with one row per result in the same columns for every source, a sheet with every file found and its download link, the open PDFs and data files in their own folders, and a record of exactly how you searched."),
+      h("li", {}, h("strong", {}, "Every wording, in 40 languages. "), "Your keywords are expanded with the other wordings studies use for them, and translated, so studies written in Polish, Spanish or Japanese are found too."),
       h("li", {}, h("strong", {}, "Built for systematic work. "), "You see and control every term; the search details, the Boolean search string and the CSV export make a search easy to report and to repeat in other databases.")),
-    h("h3", {}, "How it works"),
-    h("p", {}, "For each keyword, Research Finder asks Wikidata, the open knowledge base behind Wikipedia, for the topic's synonyms and its names in other languages, and asks OpenAlex which keywords the studies on that topic use most. It then searches OpenAlex for studies, or DataCite, Zenodo and Harvard Dataverse for datasets, with all the terms you keep. When you save, Semantic Scholar is also asked for open versions of the papers, such as arXiv preprints."),
+    h("h3", {}, "How your keywords become a search"),
+    h("ol", {},
+      h("li", {}, h("strong", {}, "Synonyms. "), "Wikidata, the open knowledge base behind Wikipedia, gives a known topic's synonyms and its names in other languages."),
+      h("li", {}, h("strong", {}, "The wordings studies use. "), `Research Finder reads the titles and abstracts of the ${SAMPLE} studies in OpenAlex that match each keyword best and finds the phrases that say the same in other words: all of the keyword's words, in any form and order (“trust in scientists” and “trustworthiness of science” for “trust in science”). These are searched too. Related phrases (“epistemic trust”) and the keywords of those studies are offered for you to add.`),
+      h("li", {}, h("strong", {}, "Translations. "), "Every English term is translated into 39 languages by Wikimedia's open machine translation (MinT), and each translation is translated back into English as a check: one that does not come back with the same meaning is left out."),
+      h("li", {}, h("strong", {}, "The search. "), "All the terms become one Boolean query (OR within a keyword, AND between keywords), split into several queries when it is longer than a service takes. Studies come from OpenAlex; datasets from DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE.")),
     h("h3", {}, "Your Google Drive"),
-    h("p", {}, "Connecting your Drive is optional. Research Finder asks Google only for access to the files it creates: it cannot see anything else in your Drive. Files are downloaded by your browser and go straight into your Drive; many publishers do not allow browsers to download their PDFs, so those stay as links."),
+    h("p", {}, "Connecting your Drive is optional. Research Finder asks Google only for access to the files it creates: it cannot see anything else in your Drive. Files are downloaded by your browser and go straight into your Drive. Some publishers and repositories (OSF, figshare) do not let browsers download files; those are listed with their download links."),
     h("h3", {}, "Privacy"),
     h("p", {}, "There is no server behind this site, no account and no tracking. Your searches go from your browser straight to the services above. See the ", h("a", { href: "privacy.html" }, "privacy policy"), "."),
     c.name ? h("h3", {}, "About the creator") : null,
@@ -570,6 +703,7 @@ function toHash() {
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
   if (f.open) p.set("open", "1");
+  if (f.fulltext) p.set("fulltext", "1");
   const s = p.toString();
   history.replaceState(null, "", s ? `#${s}` : location.pathname + location.search);
 }
@@ -589,6 +723,7 @@ function fromHash() {
   f.from = parseInt(p.get("from"), 10) || null;
   f.to = parseInt(p.get("to"), 10) || null;
   f.open = p.get("open") === "1";
+  f.fulltext = p.get("fulltext") === "1";
   state.input = p.get("q") || "";
   return null;
 }

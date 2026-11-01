@@ -174,7 +174,8 @@ button, input, select { font: inherit; color: inherit; }
 .group-actions { margin-left: auto; display: inline-flex; gap: 4px; }
 .tr-preview { margin-top: 0; }
 .g-row { margin-top: 10px; }
-.g-row-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
+.g-row-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
+.g-row-hint { text-transform: none; letter-spacing: 0; color: var(--faint); font-size: 12.5px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-strong); background: var(--surface);
@@ -188,6 +189,8 @@ button, input, select { font: inherit; color: inherit; }
 .chip.topic { border-style: solid; }
 .chip.topic::after { content: "→"; color: var(--faint); }
 .chip.lang { cursor: default; }
+.chip.doubt { color: var(--faint); }
+.chip.off.doubt::before { content: "?"; }
 .tr-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin-top: 8px; align-items: start; }
 .tr-lang { font-size: 13px; color: var(--muted); padding-top: 4px; white-space: nowrap; }
 .tr-lang label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }

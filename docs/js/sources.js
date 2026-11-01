@@ -1,37 +1,74 @@
-/* Where Research Finder searches: OpenAlex for studies of every field, and DataCite, Zenodo and Harvard Dataverse
-   for datasets. Every search returns records of one shape:
-   { key, source, kind, year, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
-     files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id) } */
-import { getJSON, local, norm, openalexJSON, snippet, stripHtml } from "./util.js";
-import { LANG_PRIORITY, mainWords } from "./terms.js";
+/* Where Research Finder searches: OpenAlex for studies of every field; DataCite, Zenodo, Harvard Dataverse, OSF and
+   OpenAIRE for datasets. Every search returns records of one shape:
+   { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
+     files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
+     landing (the repository's page of the dataset) } */
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=23";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=23";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
-const SRC_RANK = { you: 0, alias: 1, studies: 2, wikidata: 3 };
+const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
+/* English terms first, then the translations: the first term in every language, then the second, and so on, the
+   languages with the most research first. */
+const termRank = (t) => (isTranslation(t) ? 10 + (t.of || 0) * 100 + LANG_PRIORITY.indexOf(t.lang) : (SRC_RANK[t.src] ?? 3) + t.i / 1e7);
+const LUCENE = { or: " OR ", and: " AND " };
+const TROVE = { or: " | ", and: " " };          // OSF's search
+const FEW = { ...LUCENE, terms: 5 };             // OpenAIRE: at most four operators, so five terms
 
-/* The terms as one Boolean query: OR within a keyword, AND (or OR) between keywords. Long queries are shortened,
-   keeping your words and the English synonyms, then translations into the languages with the most research. */
-export function booleanQuery(groups, mode, maxLen = 3000) {
+/* The terms as one Boolean query: OR within a keyword, AND (or OR) between keywords. Long queries are shortened in
+   the order above (and to syntax.terms terms, where a service takes few operators); `used` tells which terms the
+   query covers. */
+export function booleanQuery(groups, mode, maxLen = 3000, syntax = LUCENE) {
+  const perGroup = syntax.terms ? Math.max(1, Math.floor(syntax.terms / Math.max(1, groups.length))) : Infinity;
   const quote = (t) => (t.loose
-    ? `(${mainWords(t.text).join(" AND ")})`
+    ? `(${mainWords(t.text).join(syntax.and)})`
     : `"${t.text.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim()}"`);
   const budget = Math.max(60, Math.floor(maxLen / Math.max(1, groups.length)) - 6);
-  const rank = (t) => SRC_RANK[t.src] + (t.lang ? (LANG_PRIORITY.indexOf(t.lang) + 1) / 100 : 0);
   let dropped = 0;
+  const used = new Set();
   const parts = groups.map((terms) => {
     const keep = [], kept = [];
     let len = 0;
-    for (const t of [...terms].sort((a, b) => rank(a) - rank(b))) {
+    for (const t of [...terms].sort((a, b) => termRank(a) - termRank(b))) {
       const n = ` ${norm(t.text)} `;
-      if (kept.some((k) => n.includes(k))) continue;      // "COVID-19 vaccine hesitancy" adds nothing to an OR
+      if (kept.some((k) => n.includes(k))) { used.add(t.i); continue; }   // "public trust in science" adds nothing to an OR
       const q = quote(t);
-      if (len + q.length + 4 > budget && keep.length) { dropped++; continue; }
+      if ((len + q.length + syntax.or.length > budget || keep.length >= perGroup || (t.loose && syntax.terms)) && keep.length) { dropped++; continue; }
       keep.push(q);
       kept.push(n);
-      len += q.length + 4;
+      used.add(t.i);
+      len += q.length + syntax.or.length;
     }
-    return keep.length > 1 ? `(${keep.join(" OR ")})` : keep[0] || "";
+    return keep.length > 1 ? `(${keep.join(syntax.or)})` : keep[0] || "";
   }).filter(Boolean);
-  return { query: parts.join(mode === "all" ? " AND " : " OR "), dropped };
+  return { query: parts.join(mode === "all" ? syntax.and : syntax.or), dropped, used };
+}
+
+/* A search too long for one query as several, each within maxLen: the first with your words and the English terms
+   (in one query with them, rare translations would outrank every English study), the next ones with the
+   translations, the first translation in every language first (a keyword with none left keeps its translations, so
+   that all keywords still have to match). */
+export function booleanParts(groups, mode, maxLen, maxParts = 1, syntax = LUCENE) {
+  const covered = new Set(), parts = [];
+  const split = maxParts > 1 && groups.some((g) => g.some(isTranslation));      // with one query only, all in it
+  let left = 0;
+  while (parts.length < maxParts) {
+    const first = !parts.length && split;
+    const todo = groups.map((g) => {
+      const english = g.filter((t) => !isTranslation(t)), translations = g.filter(isTranslation);
+      if (first) return english.length ? english : g;
+      const rest = g.filter((t) => !covered.has(t.i));
+      if (rest.length) return rest;
+      return mode === "all" ? (translations.length ? translations : g) : [];
+    }).filter((g) => g.length);
+    const bq = booleanQuery(todo, mode, maxLen, syntax);
+    if (!bq.query) break;
+    parts.push(bq.query);
+    bq.used.forEach((i) => covered.add(i));
+    left = groups.flat().filter((t) => !covered.has(t.i)).length;
+    if (!left) break;
+  }
+  return { parts, dropped: left };
 }
 
 function openalexParams() {
@@ -41,22 +78,28 @@ function openalexParams() {
   if (mail) p.set("mailto", mail);
   return p;
 }
+/* OpenAlex searches one search takes: each costs a share of the daily allowance, which a key makes ten times larger. */
+export const maxParts = () => (local.get("openalexKey", "") ? 8 : 3);
 
 function friendly(e, who) {
   if (e.status === 400 && /too long/i.test(e.detail || "")) return `${who}: the search is too long; choose fewer languages under Settings.`;
-  if (e.status === 429 || (e.status === 403 && who === "OpenAlex")) {
-    return `${who} is limiting free searches right now. Add a free OpenAlex key under Settings, or try again in a minute.`;
-  }
+  if (who === "OpenAlex" && openalexRefusal(e)) return openalexRefusal(e);
+  if (e.status === 429) return `${who} is limiting searches right now; try again in a minute.`;
   return `${who}: ${e.message}`;
 }
 
 const authorList = (names) => names.slice(0, 4).join("; ") + (names.length > 4 ? " et al." : "");
+const interleave = (lists) => {
+  const out = [];
+  for (let i = 0; lists.some((l) => i < l.length); i++) for (const l of lists) if (l[i]) out.push(l[i]);
+  return out;
+};
 
 /* ------------------------------------------------------------------ OpenAlex: studies */
 const OA_TYPES = { article: "a", preprint: "p", review: "v", book: "b", "book-chapter": "b", monograph: "b", dataset: "d",
   dissertation: "t", editorial: "a", letter: "a" };
 const OA_FILTER_TYPES = { a: "article", p: "preprint", v: "review", b: "book|book-chapter", d: "dataset", t: "dissertation" };
-const OA_FIELDS = "id,doi,display_name,publication_year,type,language,primary_location,best_oa_location,open_access,authorships,keywords,abstract_inverted_index,cited_by_count";
+const OA_FIELDS = "id,doi,display_name,publication_year,publication_date,type,language,primary_location,best_oa_location,open_access,authorships,keywords,abstract_inverted_index,cited_by_count";
 
 function abstractOf(inv) {
   if (!inv) return "";
@@ -69,7 +112,7 @@ function fromOpenAlex(w) {
   const loc = w.primary_location || {}, src = loc.source || {}, oa = w.best_oa_location || {};
   return {
     key: w.doi ? `doi:${w.doi.replace(/^https?:\/\/doi\.org\//, "").toLowerCase()}` : w.id, source: "OpenAlex",
-    kind: OA_TYPES[w.type] || "o", year: w.publication_year || 0, title: w.display_name || "(untitled)",
+    kind: OA_TYPES[w.type] || "o", year: w.publication_year || 0, date: w.publication_date || "", title: w.display_name || "(untitled)",
     authors: authorList((w.authorships || []).map((a) => (a.author || {}).display_name).filter(Boolean)),
     venue: src.display_name || "", doi: (w.doi || "").replace(/^https?:\/\/doi\.org\//, ""),
     url: w.doi ? "" : loc.landing_page_url || w.id, pdf: oa.pdf_url || "", lang: w.language || "",
@@ -78,11 +121,12 @@ function fromOpenAlex(w) {
   };
 }
 
-function openalexQuery({ groups, mode, filters, sort }) {
-  const { query, dropped } = booleanQuery(groups, mode, 1450);       // OpenAlex takes up to 1,500 characters
+/* Titles and abstracts (a filter search, which is also faster), or with full texts too. */
+function openalexQuery({ filters, sort }, search) {
   const p = openalexParams();
-  if (query) p.set("search", query);
   const f = [];
+  if (search && filters.fulltext) p.set("search", search);
+  else if (search) f.push(`title_and_abstract.search:${search.replace(/[,|]/g, " ")}`);
   if (filters.kinds.length) f.push(`type:${filters.kinds.map((k) => OA_FILTER_TYPES[k]).filter(Boolean).join("|")}`);
   if (filters.from || filters.to) f.push(`publication_year:${filters.from || ""}-${filters.to || ""}`);
   if (filters.open) f.push("open_access.is_oa:true");
@@ -91,40 +135,85 @@ function openalexQuery({ groups, mode, filters, sort }) {
   if (sort === "new") p.set("sort", "publication_date:desc");
   else if (sort === "cited") p.set("sort", "cited_by_count:desc");
   p.set("select", OA_FIELDS);
-  return { p, dropped };
+  return p;
 }
+
+/* The results of the parts of a search as one list: the first part's in its order, then the others' in turn, studies
+   in English or in the browser's language first (a short title in another language often matches best); by date or
+   citations when sorted so. */
+function merge(lists, sort) {
+  const seen = new Set(), out = [];
+  const add = (r) => { if (!seen.has(r.key)) { seen.add(r.key); out.push(r); } };
+  if (sort === "new") lists.flat().sort((a, b) => (b.date || String(b.year)).localeCompare(a.date || String(a.year))).forEach(add);
+  else if (sort === "cited") lists.flat().sort((a, b) => b.cited - a.cited).forEach(add);
+  else {
+    (lists[0] || []).forEach(add);
+    interleave(lists.slice(1)).forEach(add);
+    const home = new Set(["en", (navigator.language || "en").slice(0, 2).toLowerCase()]);
+    // OpenAlex leaves the language of many studies empty, and calls some in Chinese or Romanian English: the title
+    // decides (English words, or a short title in plain letters)
+    const plain = (title) => !/[^\x00-\x7f‘’“”–—]/.test(title);
+    const english = (r) => plain(r.title) && (/\b(the|of|and|in|on|for|with|to|from|by|among|between|is|are|how|what|why|does)\b/i.test(r.title)
+      || (r.lang === "en" && r.title.split(/\s+/).length <= 4));
+    const later = (r) => (english(r) || (r.lang !== "en" && home.has(r.lang)) ? 0 : 1);
+    out.sort((a, b) => later(a) - later(b));
+  }
+  return out;
+}
+
+const partCount = new Map();        // a part's query -> how many results it has, so finished parts are not asked again
 
 export const studies = {
   id: "studies",
   name: "Studies",
   note: "OpenAlex: 270 million works from every field",
   sorts: [["rel", "Best match"], ["new", "Newest first"], ["cited", "Most cited"]],
-  filters: ["kinds", "years", "open", "langs"],
+  filters: ["fulltext", "kinds", "years", "open", "langs"],
   kinds: ["a", "p", "v", "b", "d", "t"],
+  queries: (q) => booleanParts(q.groups, q.mode, 1450, maxParts()),        // OpenAlex takes up to 1,500 characters
   async search(q, page, size = 25) {
-    const { p, dropped } = openalexQuery(q);
-    p.set("per-page", String(size));
-    p.set("page", String(page));
-    try {
+    const { parts, dropped } = studies.queries(q);
+    const notes = [];
+    let total = 0, more = false;
+    const answers = await Promise.allSettled(parts.map(async (search) => {
+      const p = openalexQuery(q, search);
+      const id = p.toString();
+      const known = partCount.get(id);
+      if (known != null && (page - 1) * size >= Math.min(known, 10000)) return { count: known, items: [] };
+      p.set("per-page", String(size));
+      p.set("page", String(page));
       const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 30000 });
-      return { total: j.meta.count, items: j.results.map(fromOpenAlex), more: page * size < Math.min(j.meta.count, 10000), dropped };
-    } catch (e) {
-      throw new Error(friendly(e, "OpenAlex"));
-    }
+      partCount.set(id, j.meta.count);
+      return { count: j.meta.count, items: j.results.map(fromOpenAlex) };
+    }));
+    const lists = answers.map((a, i) => {
+      if (a.status === "rejected") {
+        if (i === 0) throw new Error(friendly(a.reason, "OpenAlex"));
+        notes.push(`${friendly(a.reason, "OpenAlex")} Search ${i + 1} of ${parts.length} (more translations) was left out.`);
+        return [];
+      }
+      total += a.value.count;
+      if (page * size < Math.min(a.value.count, 10000)) more = true;
+      return a.value.items;
+    });
+    return { total, items: merge(lists, q.sort), more, dropped, parts: parts.length, notes };
   },
 };
 
 /* ------------------------------------------------------------------ data repositories */
+const val = (x) => ((x || [])[0] || {})["@value"] || "";
+const OPENAIRE_LANGS = { eng: "en", deu: "de", ger: "de", fra: "fr", fre: "fr", spa: "es", por: "pt", ita: "it", pol: "pl", nld: "nl", dut: "nl", rus: "ru", zho: "zh", chi: "zh", jpn: "ja" };
+
 function fromDataCite(d) {
   const a = d.attributes || {};
   const desc = (a.descriptions || []).find((x) => x.descriptionType === "Abstract") || (a.descriptions || [])[0] || {};
   return {
-    key: `doi:${(a.doi || "").toLowerCase()}`, source: "DataCite", kind: "d", year: +a.publicationYear || 0,
+    key: `doi:${(a.doi || "").toLowerCase()}`, source: "DataCite", kind: "d", year: +a.publicationYear || 0, date: String(a.publicationYear || ""),
     title: ((a.titles || [])[0] || {}).title || "(untitled)", authors: authorList((a.creators || []).map((c) => c.name).filter(Boolean)),
     venue: typeof a.publisher === "object" ? (a.publisher || {}).name || "" : a.publisher || "", doi: a.doi || "", url: "", pdf: "",
     lang: (a.language || "").slice(0, 2), keywords: (a.subjects || []).map((s) => s.subject).filter(Boolean).slice(0, 8),
     abstract: snippet(stripHtml(desc.description || ""), 400), open: true, cited: a.citationCount || 0,
-    size: (a.sizes || []).join(", "), license: ((a.rightsList || [])[0] || {}).rights || "",
+    size: (a.sizes || []).join(", "), license: ((a.rightsList || [])[0] || {}).rights || "", landing: a.url || "",
   };
 }
 
@@ -133,7 +222,7 @@ function fromZenodo(r) {
   const open = m.access_right === "open";
   return {
     key: `doi:${(r.doi || m.doi || `zenodo:${r.id}`).toLowerCase()}`, source: "Zenodo", kind: "d", year: +(m.publication_date || "").slice(0, 4) || 0,
-    title: m.title || "(untitled)", authors: authorList((m.creators || []).map((c) => c.name).filter(Boolean)), venue: "Zenodo",
+    date: m.publication_date || "", title: m.title || "(untitled)", authors: authorList((m.creators || []).map((c) => c.name).filter(Boolean)), venue: "Zenodo",
     doi: r.doi || m.doi || "", url: r.doi ? "" : (r.links || {}).self_html || "", pdf: "", lang: (m.language || "").slice(0, 2),
     keywords: (m.keywords || []).slice(0, 8), abstract: snippet(stripHtml(m.description || ""), 400), open, cited: 0,
     license: ((m.license || {}).id || ""),
@@ -145,51 +234,154 @@ function fromDataverse(it) {
   const doi = (it.global_id || "").startsWith("doi:") ? it.global_id.slice(4) : "";
   return {
     key: doi ? `doi:${doi.toLowerCase()}` : it.url, source: "Harvard Dataverse", kind: "d", year: +(it.published_at || "").slice(0, 4) || 0,
-    title: it.name || "(untitled)", authors: authorList(it.authors || []), venue: it.name_of_dataverse || "Harvard Dataverse",
+    date: it.published_at || "", title: it.name || "(untitled)", authors: authorList(it.authors || []), venue: it.name_of_dataverse || "Harvard Dataverse",
     doi, url: doi ? "" : it.url || "", pdf: "", lang: "", keywords: [...(it.keywords || []), ...(it.subjects || [])].slice(0, 8),
     abstract: snippet(stripHtml(it.description || ""), 400), open: true, cited: 0, pid: it.global_id || "",
   };
 }
 
-/* How long a query each repository takes: Zenodo and Dataverse fail on long Boolean queries. */
-const REPO_LEN = { DataCite: 1500, Zenodo: 600, "Harvard Dataverse": 600 };
+function fromOSF(m) {
+  const ids = (m.identifier || []).map((x) => x["@value"] || "");
+  const doi = (ids.find((x) => /doi\.org\/10\./i.test(x)) || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+  const type = ((m.resourceType || [])[0] || {})["@id"] || "";
+  return {
+    key: doi ? `doi:${doi.toLowerCase()}` : m["@id"] || "", source: "OSF", kind: "d", year: +val(m.dateCreated).slice(0, 4) || 0,
+    date: val(m.dateCreated), title: val(m.title) || "(untitled)", authors: authorList((m.creator || []).map((c) => val(c.name)).filter(Boolean)),
+    venue: /Registration/.test(type) ? "OSF Registries" : "OSF", doi, url: doi ? "" : m["@id"] || "", pdf: "", lang: "",
+    keywords: (m.keyword || []).map((k) => k["@value"]).filter(Boolean).slice(0, 8), abstract: snippet(val(m.description), 400),
+    open: true, cited: 0, license: val(((m.rights || [])[0] || {}).name), osf: m["@id"] || "", landing: m["@id"] || "",
+  };
+}
+
+function fromOpenAIRE(r) {
+  const doi = ((r.pids || []).find((x) => x.scheme === "doi") || {}).value || "";
+  const inst = (r.instances || [])[0] || {};
+  const url = (inst.urls || [])[0] || "";
+  return {
+    key: doi ? `doi:${doi.toLowerCase()}` : `openaire:${r.id}`, source: "OpenAIRE", kind: "d", year: +(r.publicationDate || "").slice(0, 4) || 0,
+    date: r.publicationDate || "", title: r.mainTitle || "(untitled)", authors: authorList((r.authors || []).map((a) => a.fullName).filter(Boolean)),
+    venue: r.publisher || (inst.hostedBy || {}).value || "", doi, url: doi ? "" : url, pdf: "", lang: OPENAIRE_LANGS[(r.language || {}).code] || "",
+    keywords: (r.subjects || []).map((s) => (s.subject || {}).value).filter((v) => v && !/^(\d|FOS:)/.test(v)).slice(0, 8),
+    abstract: snippet(stripHtml((r.descriptions || [])[0] || ""), 400), open: !/closed|restricted|embargo/i.test((r.bestAccessRight || {}).label || ""),
+    cited: ((r.indicators || {}).citationImpact || {}).citationCount || 0, license: inst.license || "", landing: url,
+  };
+}
+
+/* OSF's search pages by cursor: the address of each page comes with the one before it. */
+const troveNext = new Map(), troveTotal = new Map();
+async function trovePage(p, page) {
+  const first = `https://share.osf.io/trove/index-card-search?${p}`;
+  const pages = troveNext.get(first) || [first];
+  troveNext.set(first, pages);
+  while (pages.length < page) {
+    const j = await getJSON(pages[pages.length - 1], { timeout: 25000 });
+    const next = ((((j.data || {}).relationships || {}).searchResultPage || {}).links || {}).next;
+    if (!next || !next.href) return { total: troveTotal.get(first) || 0, cards: [] };
+    pages.push(next.href);
+  }
+  const j = await getJSON(pages[page - 1], { timeout: 25000 });
+  const total = ((j.data || {}).attributes || {}).totalResultCount || 0;
+  troveTotal.set(first, total);
+  const cards = new Map((j.included || []).filter((x) => x.type === "index-card").map((c) => [c.id, c.attributes.resourceMetadata]));
+  // in the order of the results
+  const order = ((((j.data || {}).relationships || {}).searchResultPage || {}).data || [])
+    .map((r) => ((((j.included || []).find((x) => x.type === "search-result" && x.id === r.id) || {}).relationships || {}).indexCard || {}).data)
+    .map((d) => d && cards.get(d.id)).filter(Boolean);
+  return { total, cards: order.length ? order : [...cards.values()] };
+}
+
+const yearList = (f) => {
+  const now = new Date().getFullYear();
+  const from = f.from || (f.to ? f.to - 60 : 0), to = Math.min(f.to || now, now);
+  return from ? Array.from({ length: Math.max(0, to - from + 1) }, (_, i) => from + i).join(",") : "";
+};
 const yearsLucene = (f, field) => (f.from || f.to ? ` AND ${field}:[${f.from || 1000} TO ${f.to || 2999}]` : "");
+
+/* How long a query each repository takes (Zenodo and Dataverse fail on long Boolean queries), its syntax, and how many
+   queries one search makes (OpenAIRE takes five terms a query). */
+const REPO_LEN = { DataCite: 1500, Zenodo: 600, "Harvard Dataverse": 600, OSF: 800, OpenAIRE: 1000 };
+const REPO_SYNTAX = { OSF: TROVE, OpenAIRE: FEW };
+const REPO_PARTS = { OpenAIRE: 4 };
 const REPOS = {
-  DataCite: async (q, f, sort, page, size) => {
-    const p = new URLSearchParams({ query: q + yearsLucene(f, "publicationYear"), "resource-type-id": "dataset", "page[size]": String(size), "page[number]": String(page) });
+  DataCite: async ([q], f, sort, page, size) => {
+    const p = new URLSearchParams({ query: q + yearsLucene(f, "publicationYear"), "resource-type-id": "dataset", "page[size]": String(Math.min(size, 1000)), "page[number]": String(page) });
     if (sort === "new") p.set("sort", "-published");
     const j = await getJSON(`https://api.datacite.org/dois?${p}`, { timeout: 25000 });
     return { total: (j.meta || {}).total || 0, items: (j.data || []).map(fromDataCite) };
   },
-  Zenodo: async (q, f, sort, page, size) => {
-    const p = new URLSearchParams({ q: q + (f.from || f.to ? ` AND publication_date:[${f.from || 1000}-01-01 TO ${f.to || 2999}-12-31]` : ""), type: "dataset", size: String(Math.min(size, 25)), page: String(page) });
-    p.set("sort", sort === "new" ? "newest" : "bestmatch");
-    const j = await getJSON(`https://zenodo.org/api/records?${p}`, { timeout: 25000 });
-    return { total: (j.hits || {}).total || 0, items: ((j.hits || {}).hits || []).map(fromZenodo) };
+  Zenodo: async ([q], f, sort, page, size) => {
+    const per = Math.min(size, 25), n = Math.ceil(size / per), out = { total: 0, items: [] };
+    for (let k = 0; k < n; k++) {             // 25 a page without an account
+      const p = new URLSearchParams({ q: q + (f.from || f.to ? ` AND publication_date:[${f.from || 1000}-01-01 TO ${f.to || 2999}-12-31]` : ""), type: "dataset", size: String(per), page: String((page - 1) * n + k + 1) });
+      p.set("sort", sort === "new" ? "newest" : "bestmatch");
+      const j = await getJSON(`https://zenodo.org/api/records?${p}`, { timeout: 25000 });
+      const items = ((j.hits || {}).hits || []).map(fromZenodo);
+      out.total = (j.hits || {}).total || 0;
+      out.items.push(...items);
+      if (items.length < per) break;
+    }
+    return out;
   },
-  "Harvard Dataverse": async (q, f, sort, page, size) => {
-    const p = new URLSearchParams({ q, type: "dataset", per_page: String(size), start: String((page - 1) * size) });
+  "Harvard Dataverse": async ([q], f, sort, page, size) => {
+    const p = new URLSearchParams({ q, type: "dataset", per_page: String(Math.min(size, 1000)), start: String((page - 1) * size) });
     if (f.from || f.to) p.set("fq", `dateSort:[${f.from || 1000}-01-01T00:00:00Z TO ${f.to || 2999}-12-31T23:59:59Z]`);
     if (sort === "new") { p.set("sort", "date"); p.set("order", "desc"); }
     const j = await getJSON(`https://dataverse.harvard.edu/api/search?${p}`, { timeout: 25000 });
     return { total: (j.data || {}).total_count || 0, items: ((j.data || {}).items || []).map(fromDataverse) };
   },
+  OSF: async ([q], f, sort, page, size) => {
+    const per = Math.min(size, 100), n = Math.ceil(size / per), out = { total: 0, items: [] };
+    const p = new URLSearchParams({ cardSearchText: q, "cardSearchFilter[resourceType]": "Project,ProjectComponent,Registration,RegistrationComponent",
+      "page[size]": String(per), acceptMediatype: "application/vnd.api+json" });
+    if (sort === "new") p.set("sort", "-dateCreated");
+    const years = yearList(f);
+    if (years) p.set("cardSearchFilter[dateCreated]", years);
+    for (let k = 0; k < n; k++) {
+      const res = await trovePage(p, (page - 1) * n + k + 1);
+      out.total = res.total;
+      out.items.push(...res.cards.map(fromOSF));
+      if (res.cards.length < per) break;
+    }
+    return out;
+  },
+  OpenAIRE: async (qs, f, sort, page, size) => {
+    const per = Math.min(size, 100), n = Math.ceil(size / per);
+    const one = async (q) => {
+      const out = { total: 0, items: [] };
+      for (let k = 0; k < n; k++) {
+        const p = new URLSearchParams({ search: q, type: "dataset", pageSize: String(per), page: String((page - 1) * n + k + 1) });
+        if (sort === "new") p.set("sortBy", "publicationDate DESC");
+        if (f.from) p.set("fromPublicationDate", `${f.from}-01-01`);
+        if (f.to) p.set("toPublicationDate", `${f.to}-12-31`);
+        const j = await getJSON(`https://api.openaire.eu/graph/v1/researchProducts?${p}`, { timeout: 25000 });
+        const items = (j.results || []).map(fromOpenAIRE);
+        out.total = (j.header || {}).numFound || 0;
+        out.items.push(...items);
+        if (items.length < per) break;
+      }
+      return out;
+    };
+    const all = await Promise.all(qs.map(one));          // the first query has the main terms
+    return { total: all.reduce((a, x) => a + x.total, 0), items: interleave(all.map((x) => x.items)) };
+  },
 };
 export const REPO_NAMES = Object.keys(REPOS);
+export const repoQueries = (n, groups, mode) => booleanParts(groups, mode, REPO_LEN[n], REPO_PARTS[n] || 1, REPO_SYNTAX[n]);
 
 export const datasets = {
   id: "data",
   name: "Datasets",
-  note: "DataCite, Zenodo and Harvard Dataverse",
+  note: "DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE",
   sorts: [["rel", "Best match"], ["new", "Newest first"]],
   filters: ["years", "repos"],
-  async search({ groups, mode, filters, sort }, page, size = 10) {
+  /* size: results asked of each repository */
+  async search({ groups, mode, filters, sort }, page, size = 8) {
     const names = REPO_NAMES.filter((n) => !filters.repos.length || filters.repos.includes(n));
     let dropped = 0;
     const settled = await Promise.allSettled(names.map((n) => {
-      const bq = booleanQuery(groups, mode, REPO_LEN[n]);
+      const bq = repoQueries(n, groups, mode);
       if (n === "DataCite") dropped = bq.dropped;
-      return REPOS[n](bq.query, filters, sort, page, size);
+      return REPOS[n](bq.parts, filters, sort, page, size);
     }));
     const lists = [], notes = [], totals = {};
     settled.forEach((s, i) => {
@@ -198,16 +390,12 @@ export const datasets = {
     });
     // one entry per dataset: versions have their own DOIs, and a dataset can be in several repositories
     const seen = new Set(), items = [];
-    for (let i = 0; lists.some((l) => i < l.length); i++) {
-      for (const l of lists) {
-        const r = l[i];
-        if (!r) continue;
-        const same = `${norm(r.title)}|${r.year}`;
-        if (seen.has(r.key) || seen.has(same)) continue;
-        seen.add(r.key);
-        seen.add(same);
-        items.push(r);
-      }
+    for (const r of interleave(lists)) {
+      const same = `${norm(r.title)}|${r.year}`;
+      if (seen.has(r.key) || seen.has(same)) continue;
+      seen.add(r.key);
+      seen.add(same);
+      items.push(r);
     }
     const total = Object.values(totals).reduce((a, b) => a + b, 0);
     return { total, items, more: Object.values(totals).some((t) => t > page * size), notes, totals, dropped };
@@ -238,8 +426,36 @@ export async function semanticScholarPdfs(dois) {
   return out;
 }
 
-/* The open data files of a dataset: Zenodo lists them with the record; Harvard Dataverse is asked per dataset;
-   a Zenodo DOI found through DataCite is looked up at Zenodo. Restricted files are left out. */
+/* Links that lead to a file the browser may download: a Zenodo record page becomes its PDFs (through Zenodo's API),
+   an arXiv abstract page its PDF. */
+export async function pdfLinks(urls) {
+  const out = [];
+  for (const u of urls) {
+    const zen = /^https?:\/\/(?:www\.)?zenodo\.org\/records?\/(\d+)(?:\/files\/([^?#]+))?/i.exec(u);
+    const arxiv = /^https?:\/\/arxiv\.org\/abs\/([^?#]+)/i.exec(u);
+    if (arxiv) out.push(`https://arxiv.org/pdf/${arxiv[1]}`);
+    else if (zen && zen[2]) out.push(`https://zenodo.org/api/records/${zen[1]}/files/${zen[2]}/content`);
+    else if (zen) {
+      try {
+        const rec = await getJSON(`https://zenodo.org/api/records/${zen[1]}`, { timeout: 15000 });
+        for (const f of rec.files || []) if (/\.pdf$/i.test(f.key || "") && (f.links || {}).self) out.push(f.links.self);
+      } catch { /* the page itself is tried */ }
+    }
+    out.push(u);
+  }
+  return [...new Set(out)];
+}
+
+function figshareId(r) {
+  const m = /^10\.6084\/m9\.figshare\.(\d+)/i.exec(r.doi || "")
+    || /figshare\.com\/articles\/.+\/(\d{6,})(?:\/\d{1,3})?\/?(?:[?#].*)?$/i.exec(r.landing || r.url || "");
+  return m ? m[1] : "";
+}
+
+/* The open data files of a dataset: [{ name, size, url, copy }]. Zenodo lists them with the record; Harvard Dataverse,
+   OSF and figshare are asked per dataset; a Zenodo, OSF or figshare DOI found through DataCite or OpenAIRE is looked up
+   there. OSF and figshare do not let browsers download files (copy: false): their files are listed with links.
+   Restricted files are left out. */
 export async function datasetFiles(r) {
   if (r.files && r.files.length) return r.files;
   const zen = /^10\.5281\/zenodo\.(\d+)$/i.exec(r.doi || "");
@@ -257,5 +473,31 @@ export async function datasetFiles(r) {
       url: `https://dataverse.harvard.edu/api/access/datafile/${f.dataFile.id}${f.dataFile.originalFileFormat ? "?format=original" : ""}`,
     }));
   }
-  return [];
+  const osfDoi = /^10\.17605\/osf\.io\/([a-z0-9]{5})$/i.exec(r.doi || "");
+  const osf = r.osf || (osfDoi ? `https://osf.io/${osfDoi[1].toLowerCase()}` : "");
+  if (osf) {
+    const p = new URLSearchParams({ "cardSearchFilter[isContainedBy]": osf, "cardSearchFilter[resourceType]": "File", "page[size]": "100",
+      acceptMediatype: "application/vnd.api+json" });
+    const { cards } = await trovePage(p, 1);
+    return cards.map((m) => {
+      const version = (m["osf:hasFileVersion"] || [])[0] || {};
+      const guid = (m["@id"] || "").replace(/\/$/, "").split("/").pop();
+      return { name: val(m.fileName) || guid, size: Math.round((parseFloat(val(version["dcterms:extent"])) || 0) * 1e6),
+        url: `https://osf.io/download/${guid}/`, page: m["@id"], copy: false };
+    });
+  }
+  const figFiles = async (id) => {
+    const files = await getJSON(`https://api.figshare.com/v2/articles/${id}/files`, { timeout: 20000 });
+    return (Array.isArray(files) ? files : []).filter((f) => !f.is_link_only && f.download_url)
+      .map((f) => ({ name: f.name, size: f.size || 0, url: f.download_url, copy: false }));
+  };
+  const collection = /^10\.6084\/m9\.figshare\.c\.(\d+)/i.exec(r.doi || "");
+  if (collection) {             // a figshare collection: the files of its items (the first 30)
+    const items = await getJSON(`https://api.figshare.com/v2/collections/${collection[1]}/articles?page_size=30`, { timeout: 20000 });
+    const out = [];
+    for (const a of Array.isArray(items) ? items : []) out.push(...(await figFiles(a.id)));
+    return out;
+  }
+  const fig = figshareId(r);
+  return fig ? figFiles(fig) : [];
 }
