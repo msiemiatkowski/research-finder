@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy policy · Research Finder</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="style.css?v=20">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="brand" href="./">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="13" cy="13" r="8.5" fill="none" stroke="currentColor" stroke-width="3.2"/><path d="M19.5 19.5 28 28" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/><circle cx="13" cy="13" r="2.6" class="dot"/></svg>
+        <span>Research Finder</span>
+      </a>
+      <nav class="top-nav"><a href="./">Search</a></nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <section class="panel prose" style="margin-top: 24px">
+      <h2>Privacy policy</h2>
+      <p class="muted">Last updated 1 November 2026.</p>
+
+      <p>Research Finder is a free, open-source website that searches open indexes of studies and data repositories
+        (<a href="https://github.com/msiemiatkowski/research-finder">source code</a>). It runs entirely in your
+        browser: there is no server of ours, no account, no cookies and no analytics or tracking.</p>
+
+      <h3>Your searches</h3>
+      <p>The keywords you type are sent from your browser directly to the services that answer them:
+        <a href="https://openalex.org">OpenAlex</a>, <a href="https://www.wikidata.org">Wikidata</a>,
+        <a href="https://datacite.org">DataCite</a>, <a href="https://zenodo.org">Zenodo</a> and
+        <a href="https://dataverse.harvard.edu">Harvard Dataverse</a>. When you save a search, the DOIs of the studies are
+        also sent to <a href="https://www.semanticscholar.org">Semantic Scholar</a> to find open versions of the papers,
+        and the open PDFs and data files are downloaded by your browser from where they are published. Their own
+        privacy policies apply to those requests. Research Finder does not see or keep them.</p>
+      <p>Settings you choose (languages, an OpenAlex key, an email address) are stored only in your browser
+        (local storage) and can be removed by clearing it. An OpenAlex key or email address is sent only to OpenAlex,
+        with your searches.</p>
+
+      <h3>Google Drive</h3>
+      <p>Connecting Google Drive is optional. If you choose “Connect Google Drive”, you sign in in Google's own window
+        and grant one permission, <code>drive.file</code>: it lets Research Finder create files in your Drive and see
+        or change only the files it created. It cannot see any of your other files.</p>
+      <p>Research Finder uses this permission only when you click “Save to Drive”: it creates a folder called
+        “Research Finder” and saves there, in one folder per search, the results (a Google Sheet), a document with the
+        details of the search, and the open PDFs and data files your browser is allowed to download. The sign-in token stays in your browser's memory for the session (about an hour); it is not
+        stored or sent anywhere except to Google. Research Finder does not collect, store, share or sell any data from
+        your Google account.</p>
+      <p>You can disconnect under Settings, and remove Research Finder's access at any time at
+        <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. Files it saved stay
+        in your Drive until you delete them.</p>
+      <p>Research Finder's use and transfer of information received from Google APIs adheres to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+        including the Limited Use requirements.</p>
+
+      <h3>Contact and changes</h3>
+      <p>Questions or problems: <a href="https://github.com/msiemiatkowski/research-finder/issues">open an issue on GitHub</a>.
+        Changes to this policy are published on this page.</p>
+    </section>
+  </main>
+</body>
+</html>
