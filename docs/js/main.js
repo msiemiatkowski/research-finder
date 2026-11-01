@@ -1,9 +1,9 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=23";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=23";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=23";
-import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles } from "./sources.js?v=23";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=23";
+import { CONFIG } from "../config.js?v=24";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=24";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=24";
+import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles } from "./sources.js?v=24";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=24";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };

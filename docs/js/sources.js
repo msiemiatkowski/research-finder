@@ -3,8 +3,8 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=23";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=23";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=24";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=24";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
@@ -300,7 +300,7 @@ const yearsLucene = (f, field) => (f.from || f.to ? ` AND ${field}:[${f.from || 
 /* How long a query each repository takes (Zenodo and Dataverse fail on long Boolean queries), its syntax, and how many
    queries one search makes (OpenAIRE takes five terms a query). */
 const REPO_LEN = { DataCite: 1500, Zenodo: 600, "Harvard Dataverse": 600, OSF: 800, OpenAIRE: 1000 };
-const REPO_SYNTAX = { OSF: TROVE, OpenAIRE: FEW };
+const REPO_SYNTAX = { OSF: TROVE, OpenAIRE: FEW, Zenodo: { ...LUCENE, terms: 24 }, "Harvard Dataverse": { ...LUCENE, terms: 24 } };
 const REPO_PARTS = { OpenAIRE: 4 };
 const REPOS = {
   DataCite: async ([q], f, sort, page, size) => {
@@ -378,10 +378,17 @@ export const datasets = {
   async search({ groups, mode, filters, sort }, page, size = 8) {
     const names = REPO_NAMES.filter((n) => !filters.repos.length || filters.repos.includes(n));
     let dropped = 0;
-    const settled = await Promise.allSettled(names.map((n) => {
+    const settled = await Promise.allSettled(names.map(async (n) => {
       const bq = repoQueries(n, groups, mode);
       if (n === "DataCite") dropped = bq.dropped;
-      return REPOS[n](bq.parts, filters, sort, page, size);
+      try {
+        return await REPOS[n](bq.parts, filters, sort, page, size);
+      } catch (e) {
+        if (!(e.status >= 500)) throw e;
+        // some repositories fail on long queries in many scripts: once more with the English terms only
+        const english = groups.map((g) => g.filter((t) => !isTranslation(t))).filter((g) => g.length);
+        return REPOS[n](repoQueries(n, english, mode).parts, filters, sort, page, size);
+      }
     }));
     const lists = [], notes = [], totals = {};
     settled.forEach((s, i) => {

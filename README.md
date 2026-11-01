@@ -90,7 +90,7 @@ Find the studies and the data behind them, in 40 languages, and keep everything 
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
 (Google sign-in and the folder structure), `main.js` (the page) and `util.js`. Module imports carry a version
-(`?v=23`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=24`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 
