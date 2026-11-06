@@ -9,7 +9,7 @@
        Search details     Google Doc: where and how the search was made (keywords, every term, filters, the queries)
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset */
-import { CONFIG } from "../config.js?v=24";
+import { CONFIG } from "../config.js?v=25";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -127,6 +127,10 @@ async function download(url, maxBytes, size = 0) {
   const timer = setTimeout(() => ctrl.abort(), size ? Math.max(60000, size / 100) : 600000);
   try {
     const r = await fetch(url, { signal: ctrl.signal });
+    if (r.status >= 400 && /json/.test(r.headers.get("Content-Type") || "") && /\/\?url=/.test(url)) {
+      const why = await r.json().then((j) => j.error, () => "");
+      if (why) throw new Error(`the file relay answered: ${why}`);
+    }
     if (r.status !== 200 && r.status !== 203) throw new Error(`HTTP ${r.status}`);
     if (Number(r.headers.get("Content-Length") || 0) > maxBytes) throw new Error("too large");
     const blob = await r.blob();
@@ -151,8 +155,9 @@ async function pool(items, n, fn) {
   }));
 }
 
-/* jobs: [{ row, kind: "paper" | "data", urls, name, title, dataset, size, repo, copy }], every file found (copy: false
-   when its repository does not let browsers download it: listed only); rows: the CSV's data rows, one per result (the
+/* jobs: [{ row, kind: "paper" | "data", urls, source, name, title, dataset, size, repo, copy }], every file found
+   (copy: false when its repository does not let browsers download it and no file relay is connected: listed only;
+   source: the file's own address, when urls lead through the relay); rows: the CSV's data rows, one per result (the
    "Saved in Drive" column is added here). onSignIn: called when the sign-in runs out; resolves once connected again. */
 export async function saveSearch({ title, header, rows, jobs, detailsHtml, maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
   signIn = onSignIn;
@@ -166,7 +171,7 @@ export async function saveSearch({ title, header, rows, jobs, detailsHtml, maxFi
     const failed = [];
     const fail = (job, why) => { job.why = why; failed.push(job); };
     const save = async (job) => {
-      if (job.copy === false) return fail(job, `${job.repo || "The repository"} does not let browsers download files: use the link`);
+      if (job.copy === false) return fail(job, `${job.repo || "The repository"} does not let browsers download files: use the link, or connect a file relay (Settings)`);
       if (job.size > maxFile) return fail(job, "larger than the size limit");
       if (bytes + (job.size || 0) > maxTotal) return fail(job, "the total size limit was reached");
       let blob = null, why = "the site does not let browsers download it";
@@ -180,7 +185,7 @@ export async function saveSearch({ title, header, rows, jobs, detailsHtml, maxFi
           blob = b;
           break;
         } catch (e) {
-          why = e.message === "too large" ? "larger than the size limit" : why;
+          why = e.message === "too large" ? "larger than the size limit" : /^the file relay/.test(e.message) ? e.message : why;
         }
       }
       if (!blob) return fail(job, why);
@@ -209,7 +214,7 @@ export async function saveSearch({ title, header, rows, jobs, detailsHtml, maxFi
     if (jobs.length) {
       onProgress("Listing every file in a sheet…");
       const list = [["Result no.", "Result", "File", "Size (MB)", "Repository", "Download link", "Saved in Drive", "Not saved because"],
-        ...jobs.map((j) => [j.row + 1, j.title, j.name, j.size ? (j.size / 1e6).toFixed(2) : "", j.repo || "", j.urls[0] || "", j.link || "", j.link ? "" : j.why || ""])];
+        ...jobs.map((j) => [j.row + 1, j.title, j.name, j.size ? (j.size / 1e6).toFixed(2) : "", j.repo || "", j.source || j.urls[0] || "", j.link || "", j.link ? "" : j.why || ""])];
       files = await upload({ name: "Files", mimeType: SHEET, parents: [folder.id] }, new Blob([csvOf(list)], { type: "text/csv" }));
     }
     onProgress("Writing the search details…");

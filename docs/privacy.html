@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy policy · Research Finder</title>
   <meta name="color-scheme" content="light dark">
-  <link rel="stylesheet" href="style.css?v=24">
+  <link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
   <header class="top">
@@ -37,7 +37,12 @@
         the papers, figshare and OSF are asked for the lists of files of their datasets, and the open PDFs and data files
         are downloaded by your browser from where they are published. Their own privacy policies apply to those
         requests. Research Finder does not see or keep them.</p>
-      <p>Settings you choose (languages, an OpenAlex key, an email address) and the machine translations of your terms
+      <p>File relay (optional). OSF and figshare do not let web pages download their files. If you connect a file relay
+        under Settings, Research Finder sends the addresses of those files to that relay, which fetches each file and
+        passes it straight to your browser, keeping nothing. A relay is run by whoever set it up, for example you, on
+        your own free Cloudflare account (<a href="relay/worker.js">its code</a>). Without one, nothing is sent to a relay
+        and those files are listed with their links.</p>
+      <p>Settings you choose (languages, an OpenAlex key, an email address, a file relay) and the machine translations of your terms
         are stored only in your browser (local storage) and can be removed by clearing it. An OpenAlex key or email
         address is sent only to OpenAlex, with your searches.</p>
 

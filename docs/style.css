@@ -281,7 +281,7 @@ dialog { border: 1px solid var(--border); border-radius: var(--radius); padding:
 dialog::backdrop { background: rgb(10 15 14 / 45%); }
 .dialog-inner { padding: 18px 22px 22px; }
 .dialog-inner h3 { font-size: 15px; margin: 18px 0 4px; }
-.dialog-inner input[type="password"], .dialog-inner input[type="email"] { width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); margin-top: 6px; }
+.dialog-inner input[type="password"], .dialog-inner input[type="email"], .dialog-inner input[type="url"] { width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); margin-top: 6px; }
 .lang-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0 12px; margin-top: 8px; }
 @media (max-width: 600px) {
   .top-inner { height: auto; padding-top: 10px; padding-bottom: 10px; flex-wrap: wrap; }
@@ -329,3 +329,9 @@ body.searching .features { display: none; }
   .tree .t-2 { margin-left: 20px; }
   .tree li span { display: block; margin-left: 0; }
 }
+.relay-row { display: flex; align-items: center; gap: 8px; }
+.relay-row input { flex: 1; min-width: 0; margin-top: 0 !important; }
+.relay-guide { margin-top: 10px; font-size: 14px; }
+.relay-guide summary { cursor: pointer; color: var(--accent-strong); }
+.relay-guide ol { margin: 8px 0 0; padding-left: 20px; }
+.relay-guide li { margin: 4px 0; }

@@ -70,7 +70,24 @@ Find the studies and the data behind them, in 40 languages, and keep everything 
 - Many publishers do not let browsers download their PDFs. Those stay as links in the sheet.
 - Names in other languages come from Wikidata and from machine translation; the back-translation check catches many
   but not all poor translations. Check them before relying on them, for example in a systematic review.
-- OSF and figshare files cannot be copied into Drive by a browser; the "Files" sheet has their download links.
+- OSF and figshare files cannot be copied into Drive by a browser alone; the "Files" sheet has their download links,
+  or a file relay copies them (below).
+
+## File relay for OSF and figshare (optional)
+
+OSF and figshare do not let web pages download their files. A file relay, [`docs/relay/worker.js`](docs/relay/worker.js),
+is a small Cloudflare Worker that fetches an open file from OSF or figshare (and only from them) and passes it straight
+to the page, keeping nothing; it answers only the sites listed in its `ORIGINS`. Each visitor decides whether to use
+one: under Settings, "OSF and figshare files", they paste a relay's address and choose Check. The address stays in their
+browser. With a relay connected, OSF and figshare files (and OSF preprint PDFs) are copied into Drive like the others.
+
+To set one up (free, about five minutes): create a Cloudflare account; in the dashboard open Workers & Pages, Create
+application, start from "Hello World" and deploy it; choose Edit code, replace the code with `docs/relay/worker.js` and
+Deploy; paste the Worker's address (`https://<name>.<subdomain>.workers.dev`) into Settings. With Wrangler instead:
+`npx wrangler deploy docs/relay/worker.js --name research-finder-relay --compatibility-date 2026-11-01`. Cloudflare's
+free plan allows 100,000 requests a day and is not billed. A copy of the site on another address adds that address to
+`ORIGINS`; to offer a relay to all its visitors (each still chooses to use it), put its address in `docs/config.js` as
+`fileRelay`.
 
 ## Run your own copy
 
@@ -90,7 +107,7 @@ Find the studies and the data behind them, in 40 languages, and keep everything 
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
 (Google sign-in and the folder structure), `main.js` (the page) and `util.js`. Module imports carry a version
-(`?v=24`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=25`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 

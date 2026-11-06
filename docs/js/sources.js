@@ -3,8 +3,8 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=24";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=24";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=25";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=25";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
@@ -434,10 +434,13 @@ export async function semanticScholarPdfs(dois) {
 }
 
 /* Links that lead to a file the browser may download: a Zenodo record page becomes its PDFs (through Zenodo's API),
-   an arXiv abstract page its PDF. */
+   an arXiv abstract page its PDF, an OSF preprint link (PsyArXiv, SocArXiv...) OSF's download address. */
+const OSF_PREPRINT = /^https?:\/\/(?:www\.)?(?:osf\.io(?:\/preprints\/[a-z]+)?|psyarxiv\.com|socarxiv\.org|edarxiv\.org|engrxiv\.org|mindrxiv\.org|metaarxiv\.org|sportrxiv\.org|ecoevorxiv\.org|eartharxiv\.org|paleorxiv\.org)\/([a-z0-9]{5}(?:_v\d+)?)\/download\/?$/i;
 export async function pdfLinks(urls) {
   const out = [];
   for (const u of urls) {
+    const osf = OSF_PREPRINT.exec(u);
+    if (osf) out.push(`https://osf.io/download/${osf[1].toLowerCase()}/`);
     const zen = /^https?:\/\/(?:www\.)?zenodo\.org\/records?\/(\d+)(?:\/files\/([^?#]+))?/i.exec(u);
     const arxiv = /^https?:\/\/arxiv\.org\/abs\/([^?#]+)/i.exec(u);
     if (arxiv) out.push(`https://arxiv.org/pdf/${arxiv[1]}`);
@@ -459,10 +462,28 @@ function figshareId(r) {
   return m ? m[1] : "";
 }
 
-/* The open data files of a dataset: [{ name, size, url, copy }]. Zenodo lists them with the record; Harvard Dataverse,
+/* ------------------------------------------------------------------ the file relay */
+/* OSF and figshare do not let web pages download their files. A file relay (docs/relay/worker.js, a small Cloudflare
+   Worker on the visitor's own free account, or one they were given) fetches them instead. Each visitor decides whether
+   to connect one, under Settings; its address is kept in their browser. */
+export const relayAddress = () => String(local.get("relay", "") || "").trim().replace(/\/+$/, "");
+export const needsRelay = (url) => /^https:\/\/((www\.)?osf\.io\/(download\/[a-z0-9]{5,}(_v\d+)?|[a-z0-9]{5,}(_v\d+)?\/download)\/?$|files(\.[a-z0-9-]+)?\.osf\.io\/v1\/resources\/|ndownloader\.figshare\.com\/files\/\d|figshare\.com\/ndownloader\/files\/\d)/i.test(url || "");
+export const relayed = (url) => `${relayAddress()}/?url=${encodeURIComponent(url)}`;
+
+/* Whether an address answers as a Research Finder file relay: { ok, hosts } or { ok: false, why }. */
+export async function checkRelay(address) {
+  try {
+    const j = await getJSON(`${String(address).trim().replace(/\/+$/, "")}/`, { timeout: 15000, cacheable: false });
+    return j && j.service === "research-finder-relay" ? { ok: true, hosts: j.hosts || [] } : { ok: false, why: "it answers, but it is not a Research Finder relay" };
+  } catch (e) {
+    return { ok: false, why: e.status === 403 ? "it does not serve this site: this address must be in the relay's list of sites (ORIGINS)" : e.message };
+  }
+}
+
+/* The open data files of a dataset: [{ name, size, url, relay }]. Zenodo lists them with the record; Harvard Dataverse,
    OSF and figshare are asked per dataset; a Zenodo, OSF or figshare DOI found through DataCite or OpenAIRE is looked up
-   there. OSF and figshare do not let browsers download files (copy: false): their files are listed with links.
-   Restricted files are left out. */
+   there. OSF and figshare files can be downloaded only through a file relay (relay: true); without one they are listed
+   with their links. Restricted files are left out. */
 export async function datasetFiles(r) {
   if (r.files && r.files.length) return r.files;
   const zen = /^10\.5281\/zenodo\.(\d+)$/i.exec(r.doi || "");
@@ -490,13 +511,13 @@ export async function datasetFiles(r) {
       const version = (m["osf:hasFileVersion"] || [])[0] || {};
       const guid = (m["@id"] || "").replace(/\/$/, "").split("/").pop();
       return { name: val(m.fileName) || guid, size: Math.round((parseFloat(val(version["dcterms:extent"])) || 0) * 1e6),
-        url: `https://osf.io/download/${guid}/`, page: m["@id"], copy: false };
+        url: `https://osf.io/download/${guid}/`, page: m["@id"], relay: true };
     });
   }
   const figFiles = async (id) => {
     const files = await getJSON(`https://api.figshare.com/v2/articles/${id}/files`, { timeout: 20000 });
     return (Array.isArray(files) ? files : []).filter((f) => !f.is_link_only && f.download_url)
-      .map((f) => ({ name: f.name, size: f.size || 0, url: f.download_url, copy: false }));
+      .map((f) => ({ name: f.name, size: f.size || 0, url: f.download_url, relay: true }));
   };
   const collection = /^10\.6084\/m9\.figshare\.c\.(\d+)/i.exec(r.doi || "");
   if (collection) {             // a figshare collection: the files of its items (the first 30)
