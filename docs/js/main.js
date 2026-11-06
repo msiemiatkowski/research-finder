@@ -1,10 +1,10 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=25";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=25";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=25";
+import { CONFIG } from "../config.js?v=26";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=26";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=26";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=25";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=25";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=26";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=26";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
@@ -330,7 +330,10 @@ function renderToolbar(status) {
       src.sorts.map(([v, l]) => h("option", { value: v, selected: state.sort === v }, l))),
     h("button", { type: "button", class: "btn btn-small", onclick: copySearchString, title: "Copy the terms as a Boolean search string" }, "Copy search string"),
     externalMenu(),
-    results.length ? h("button", { type: "button", class: "btn btn-small", onclick: exportCsv, title: "Download the results shown as a spreadsheet (CSV)" }, "Export CSV") : null,
+    results.length ? menu("Export ▾", [
+      ["Spreadsheet (CSV)", exportCsv],
+      ["References (RIS) for Zotero, EndNote, Rayyan, Covidence or ASReview", exportRis],
+    ], "Download the results shown, with their abstracts") : null,
     results.length ? h("button", { type: "button", class: "btn btn-small btn-primary-soft", onclick: openSave, title: "Save the results, open PDFs and data files to your Google Drive" }, "Save to Google Drive") : null);
   const msgs = [...notes];
   if (extra.dropped) {
@@ -351,36 +354,68 @@ async function copySearchString() {
   try { await navigator.clipboard.writeText(s); toast("Search string copied"); } catch { window.prompt("Copy the search string:", s); }
 }
 
-function externalMenu() {
+/* A small menu of links ([label, address]) and actions ([label, function]). */
+function menu(label, entries, title) {
   const list = h("div", { class: "menu-list", hidden: true });
-  const links = [
-    ["Google Scholar (English terms)", `https://scholar.google.com/scholar?q=${encodeURIComponent(searchString(true, 250))}`],
-    ["PubMed (English terms)", `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(searchString(true))}`],
-    ["BASE (all terms)", `https://www.base-search.net/Search/Results?lookfor=${encodeURIComponent(searchString(false, 4000))}&type=all`],
-    ["OpenAlex (English terms)", `https://openalex.org/works?search=${encodeURIComponent(searchString(true, 900))}`],
-  ];
-  for (const [l, href] of links) list.append(link(href, l));
+  for (const [text, go] of entries) list.append(typeof go === "function" ? h("button", { type: "button", onclick: go }, text) : link(go, text));
   return h("div", { class: "menu" }, h("button", {
-    type: "button", class: "btn btn-small", "aria-haspopup": "true",
+    type: "button", class: "btn btn-small", "aria-haspopup": "true", title,
     onclick: (e) => { e.stopPropagation(); list.hidden = !list.hidden; if (!list.hidden) document.addEventListener("click", () => { list.hidden = true; }, { once: true }); },
-  }, "Search elsewhere ▾"), list);
+  }, label), list);
 }
 
+const externalMenu = () => menu("Search elsewhere ▾", [
+  ["Google Scholar (English terms)", `https://scholar.google.com/scholar?q=${encodeURIComponent(searchString(true, 250))}`],
+  ["PubMed (English terms)", `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(searchString(true))}`],
+  ["BASE (all terms)", `https://www.base-search.net/Search/Results?lookfor=${encodeURIComponent(searchString(false, 4000))}&type=all`],
+  ["OpenAlex (English terms)", `https://openalex.org/works?search=${encodeURIComponent(searchString(true, 900))}`],
+]);
+
 /* One row per result, the same columns for every source. */
-const HEADER = ["No.", "Title", "Authors", "Year", "Type", "Journal or repository", "DOI", "Link", "Open PDF", "Language", "Keywords", "Source", "Citations", "License", "Size"];
-const rowOf = (r, i) => [i + 1, r.title, r.authors, r.year || "", KIND_NAMES[r.kind] || "", r.venue, r.doi ? `https://doi.org/${r.doi}` : "",
+const HEADER = ["No.", "Title", "Abstract", "Authors", "Year", "Type", "Journal or repository", "DOI", "Link", "Open PDF", "Language", "Keywords", "Source", "Citations", "License", "Size"];
+const rowOf = (r, i) => [i + 1, r.title, r.full || r.abstract || "", r.authors, r.year || "", KIND_NAMES[r.kind] || "", r.venue, r.doi ? `https://doi.org/${r.doi}` : "",
   r.url || r.landing || "", r.pdf, r.lang, (r.keywords || []).join("; "), r.source, r.cited || "", r.license || "", r.size || ""];
+
+/* The same results as a RIS file, which reference managers (Zotero, EndNote, Mendeley) and screening tools (Rayyan,
+   Covidence, ASReview) import. */
+const RIS_TYPES = { article: "JOUR", review: "JOUR", editorial: "JOUR", letter: "JOUR", preprint: "UNPB", book: "BOOK", monograph: "BOOK",
+  "book-chapter": "CHAP", dissertation: "THES", dataset: "DATA" };
+function risOf(records) {
+  const tag = (t, v) => (v == null || v === "" ? "" : `${t}  - ${String(v).replace(/\s+/g, " ").trim()}\r\n`);
+  return records.map((r) => [
+    tag("TY", r.kind === "d" ? "DATA" : RIS_TYPES[r.type] || "GEN"),
+    tag("TI", r.title),
+    ...(r.people || []).map((p) => tag("AU", p)),
+    tag("PY", r.year || ""),
+    tag("DA", (r.date || "").slice(0, 10).replace(/-/g, "/")),
+    tag(r.kind === "d" ? "PB" : "T2", r.venue),
+    tag("AB", r.full || r.abstract),
+    ...(r.keywords || []).map((k) => tag("KW", k)),
+    tag("DO", r.doi),
+    tag("UR", r.doi ? `https://doi.org/${r.doi}` : safeUrl(r.url || r.landing)),
+    tag("LA", r.lang === "en" ? "English" : LANG_NAMES[r.lang] || r.lang),
+    tag("DB", r.source),
+    "ER  - \r\n",
+  ].join("")).join("\r\n");
+}
+
+function downloadFile(name, text, type) {
+  const a = h("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
+  document.body.append(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast(`Exported ${plural(results.length, "result")}${more ? `, the ones loaded so far (Save to Google Drive saves up to ${fmt(saveMax())})` : ""}`, 4000);
+}
+// OpenAlex pages 200 studies at a time; without a key, its daily allowance covers about 2,000 a day
+const saveMax = () => (state.tab === "studies" && !local.get("openalexKey", "") ? 2000 : 10000);
+const fileDate = () => new Date().toISOString().slice(0, 10);
 
 function exportCsv() {
   const cell = (v) => { const s = String(v == null ? "" : v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const csv = [HEADER, ...results.map(rowOf)].map((r) => r.map(cell).join(",")).join("\r\n");
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-  const a = h("a", { href: URL.createObjectURL(blob), download: `research-finder-${new Date().toISOString().slice(0, 10)}.csv` });
-  document.body.append(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  toast(`Exported ${plural(results.length, "result")}${more ? " (the ones loaded so far)" : ""}`);
+  downloadFile(`research-finder-${fileDate()}.csv`, "﻿" + csv, "text/csv;charset=utf-8");
 }
+const exportRis = () => downloadFile(`research-finder-${fileDate()}.ris`, risOf(results), "application/x-research-info-systems");
 
 /* ------------------------------------------------------------------ saving to Google Drive */
 const MB = 1e6;
@@ -390,8 +425,7 @@ function openSave() {
   const d = $("#save");
   if (!driveConfigured()) { toast("Saving to Google Drive is not set up on this copy of the site.", 4000); return; }
   const studiesTab = state.tab === "studies";
-  // OpenAlex pages 200 studies at a time; without a key, its daily allowance covers about 2,000 a day
-  const most = Math.min(total, studiesTab && !local.get("openalexKey", "") ? 2000 : 10000);
+  const most = Math.min(total, saveMax());
   const counts = [...new Set([results.length, 100, 500, 1000, 2000, 5000, most].filter((n) => n && n <= Math.max(results.length, most)))].sort((a, b) => a - b);
   const pick = counts.filter((n) => n <= 1000).pop() || counts[0];
   const howMany = h("select", { id: "save-count" }, counts.map((n) => h("option", { value: n, selected: n === pick },
@@ -404,7 +438,8 @@ function openSave() {
   fill($("#save-body"),
     h("p", {}, "Research Finder makes a folder for this search in your Google Drive, inside “Research Finder”:"),
     h("ul", { class: "tree" },
-      h("li", {}, h("strong", {}, "Results"), " — a Google Sheet: one row per result, the same columns for every source, with links to the files saved"),
+      h("li", {}, h("strong", {}, "Results"), " — a Google Sheet: one row per result with its abstract, the same columns for every source, with links to the files saved"),
+      h("li", {}, h("strong", {}, "Results.ris"), " — the same results as a reference file, to import into Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview"),
       h("li", {}, h("strong", {}, "Files"), " — a Google Sheet with every file found: its download link, and whether it was saved (and if not, why)"),
       h("li", {}, h("strong", {}, "Search details"), " — a document with your keywords, every term and translation used, the filters and the exact queries, so the search can be repeated"),
       studiesTab ? h("li", {}, h("strong", {}, "Papers/"), " — the open PDFs (also open versions found through Semantic Scholar, such as arXiv preprints)")
@@ -497,7 +532,7 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     }
     const title = `${state.input} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
     const res = await saveSearch({
-      title, header: HEADER, rows: rows.map(rowOf), jobs, maxFile, maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
+      title, header: HEADER, rows: rows.map(rowOf), ris: risOf(rows), jobs, maxFile, maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
       detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats),
       onSignIn: () => new Promise((resolve, reject) => {
         fill($("#save-signin"), h("p", { class: "note warn" }, "Google's sign-in has run out (it lasts an hour). "),
@@ -575,7 +610,7 @@ function detailsHtml(nRows, nJobs, stats) {
 <h2>Filters</h2><p>${filters.length ? filters.map(esc).join("<br>") : "None."}</p>
 <h2>Queries sent</h2>${queries}
 <h2>What was saved</h2>
-<p>${fmt(total)} results found; the first ${fmt(nRows)} saved in the sheet “Results”, in the order shown (${esc((src.sorts.find(([v]) => v === state.sort) || ["", "Best match"])[1])}).</p>
+<p>${fmt(total)} results found; the first ${fmt(nRows)} saved in the sheet “Results” and in the reference file “Results.ris”, in the order shown (${esc((src.sorts.find(([v]) => v === state.sort) || ["", "Best match"])[1])}), with duplicates removed.</p>
 <p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / MB).toFixed(1)} MB), of ${fmt(nJobs)} found; the sheet “Files” lists every one.${listedOnly ? ` ${fmt(listedOnly)} are in repositories that do not let browsers download files (OSF, figshare): the sheet has their download links.` : ""}${relayAddress() ? ` Files from OSF and figshare were fetched through the file relay ${esc(relayAddress())}.` : ""}</p>
 ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
 <p>Repeat the search: ${esc(location.href)}</p>
@@ -705,22 +740,72 @@ async function copyRelayCode() {
   }
 }
 
+/* "Siemiątkowski, M. (2026). Research Finder [Computer software]. <address>", as text or with the title in italics. */
+function citation(html = false) {
+  const names = String((CONFIG.creator || {}).name || "").trim().split(/\s+/).filter(Boolean);
+  if (!names.length) return "";
+  const last = names.pop();
+  const who = names.length ? `${last}, ${names.map((n) => `${n[0]}.`).join(" ")}` : last;
+  const where = location.origin + location.pathname.replace(/index\.html$/, "");
+  const title = "Research Finder";
+  return html
+    ? [`${who} (${new Date().getFullYear()}). `, h("i", {}, title), ` [Computer software]. `, link(where, where)]
+    : `${who} (${new Date().getFullYear()}). ${title} [Computer software]. ${where}`;
+}
+
+async function copyCitation() {
+  const text = citation();
+  try { await navigator.clipboard.writeText(text); toast("Citation copied"); } catch { window.prompt("Copy the citation:", text); }
+}
+
+function openAbout(e) {
+  if (e) e.preventDefault();
+  renderAbout();
+  $("#about").hidden = false;
+  $("#about").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/* Who made the site, on the front page. */
+function renderMaker() {
+  const c = CONFIG.creator || {};
+  if (!c.name) return;
+  const role = [c.role ? c.role[0].toUpperCase() + c.role.slice(1) : "", c.affiliation].filter(Boolean).join(", ");
+  fill($("#maker-body"),
+    h("div", {},
+      h("p", { class: "maker-name" }, c.name),
+      role ? h("p", { class: "maker-role" }, role) : null,
+      c.bio ? h("p", {}, c.bio) : null,
+      c.email ? h("p", {}, "Questions, ideas or problems: ", h("a", { href: `mailto:${c.email}` }, c.email), ".") : null,
+      h("p", { class: "maker-links" }, link("https://github.com/msiemiatkowski/research-finder", "Source code on GitHub"), " · ",
+        h("a", { href: "privacy.html" }, "Privacy policy"), " · ", h("a", { href: "#about", onclick: openAbout }, "How it works, in detail"))),
+    h("div", { class: "cite" },
+      h("h3", {}, "Used it in a paper? Cite it"),
+      h("p", {}, citation(true)),
+      h("button", { type: "button", class: "btn btn-small", onclick: copyCitation }, "Copy the citation")));
+  $("#maker").hidden = false;
+}
+
 function renderAbout() {
   const c = CONFIG.creator || {};
   fill($("#about-body"),
-    h("p", { class: "lead-sm" }, "Research Finder is a free tool for researchers who need more than a list of papers: it finds studies and the datasets behind them, in many languages, and saves everything it finds to your Google Drive in a clear, repeatable structure."),
-    h("h3", {}, "What makes it different"),
-    h("ul", {},
-      h("li", {}, h("strong", {}, "Datasets, not only papers. "), "Studies from OpenAlex (about 270 million works) and datasets from DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE, with their open data files."),
-      h("li", {}, h("strong", {}, "Everything saved, in order. "), "Each search becomes a folder in your Drive: a sheet with one row per result in the same columns for every source, a sheet with every file found and its download link, the open PDFs and data files in their own folders, and a record of exactly how you searched."),
-      h("li", {}, h("strong", {}, "Every wording, in 40 languages. "), "Your keywords are expanded with the other wordings studies use for them, and translated, so studies written in Polish, Spanish or Japanese are found too."),
-      h("li", {}, h("strong", {}, "Built for systematic work. "), "You see and control every term; the search details, the Boolean search string and the CSV export make a search easy to report and to repeat in other databases.")),
+    h("p", { class: "lead-sm" }, "How your keywords become a search, what is saved, and how to report a search made with Research Finder."),
     h("h3", {}, "How your keywords become a search"),
     h("ol", {},
       h("li", {}, h("strong", {}, "Synonyms. "), "Wikidata, the open knowledge base behind Wikipedia, gives a known topic's synonyms and its names in other languages."),
       h("li", {}, h("strong", {}, "The wordings studies use. "), `Research Finder reads the titles and abstracts of the ${SAMPLE} studies in OpenAlex that match each keyword best and finds the phrases that say the same in other words: all of the keyword's words, in any form and order (“trust in scientists” and “trustworthiness of science” for “trust in science”). These are searched too. Related phrases (“epistemic trust”) and the keywords of those studies are offered for you to add.`),
       h("li", {}, h("strong", {}, "Translations. "), "Every English term is translated into 39 languages by Wikimedia's open machine translation (MinT), and each translation is translated back into English as a check: one that does not come back with the same meaning is left out."),
       h("li", {}, h("strong", {}, "The search. "), "All the terms become one Boolean query (OR within a keyword, AND between keywords), split into several queries when it is longer than a service takes. Studies come from OpenAlex; datasets from DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE.")),
+    h("h3", {}, "What is saved"),
+    h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
+    h("h3", {}, "Reporting a search"),
+    h("p", {}, "The document “Search details” in each saved folder has what a methods section and a search appendix need:"),
+    h("ul", {},
+      h("li", {}, "the sources: OpenAlex, or the data repositories, searched through Research Finder;"),
+      h("li", {}, "the date of the search;"),
+      h("li", {}, "every term and translation, and the exact queries sent;"),
+      h("li", {}, "the limits: where in the records it searched, and the years, types and languages chosen;"),
+      h("li", {}, "the number of records found and saved, for the flow diagram.")),
+    citation() ? h("p", {}, "Cite Research Finder as: ", citation(true)) : null,
     h("h3", {}, "Your Google Drive"),
     h("p", {}, "Connecting your Drive is optional. Research Finder asks Google only for access to the files it creates: it cannot see anything else in your Drive. Files are downloaded by your browser and go straight into your Drive. Some publishers and repositories (OSF, figshare) do not let browsers download files; those are listed with their download links, or, if you connect a file relay under Settings, copied through it."),
     h("h3", {}, "Privacy"),
@@ -774,13 +859,14 @@ function fromHash() {
 function renderCredit() {
   const c = CONFIG.creator || {};
   if (!c.name) return;
-  fill($("#foot-credit"), "Created by ", h("a", { href: "#about", onclick: (e) => { e.preventDefault(); renderAbout(); $("#about").hidden = false; $("#about").scrollIntoView({ behavior: "smooth", block: "start" }); } }, c.name),
+  fill($("#foot-credit"), "Created by ", h("a", { href: "#about", onclick: openAbout }, c.name),
     c.affiliation ? ` (${c.affiliation})` : "", c.email ? [" · ", h("a", { href: `mailto:${c.email}` }, c.email)] : null);
 }
 
 /* ------------------------------------------------------------------ start */
 function start() {
   renderCredit();
+  renderMaker();
   const panel = fromHash();
   renderTabs();
   renderFilters();
@@ -800,9 +886,12 @@ $("#drive-btn").addEventListener("click", async () => {
 });
 $("#settings-btn").addEventListener("click", openSettings);
 $("#search-form").addEventListener("submit", (e) => { e.preventDefault(); setQuery($("#q").value); });
-document.querySelectorAll(".example").forEach((b) => b.addEventListener("click", () => setQuery(b.textContent)));
+document.querySelectorAll(".example").forEach((b) => b.addEventListener("click", () => {
+  setQuery(b.dataset.q || b.textContent);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}));
 $("#more").addEventListener("click", showMore);
-$("#about-link").addEventListener("click", (e) => { e.preventDefault(); renderAbout(); $("#about").hidden = false; $("#about").scrollIntoView({ behavior: "smooth", block: "start" }); });
+$("#about-link").addEventListener("click", openAbout);
 document.querySelectorAll(".close-panel").forEach((b) => b.addEventListener("click", () => { $("#" + b.dataset.close).hidden = true; }));
 $("#home-link").addEventListener("click", (e) => { e.preventDefault(); $("#about").hidden = true; state.filters = emptyFilters(); setQuery(""); });
 $("#filters-toggle").addEventListener("click", () => {

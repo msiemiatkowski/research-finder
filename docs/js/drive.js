@@ -5,11 +5,12 @@
    Each saved search becomes one folder inside "Research Finder":
      <keywords> — <date>/
        Results            Google Sheet: one row per result, the same columns for every source, links to saved files
-       Files              Google Sheet: every file found, with its download link and whether it was saved
+       Results.ris        the same results for reference managers and screening tools (Zotero, Rayyan, Covidence...)
+       Files             Google Sheet: every file found, with its download link and whether it was saved
        Search details     Google Doc: where and how the search was made (keywords, every term, filters, the queries)
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset */
-import { CONFIG } from "../config.js?v=25";
+import { CONFIG } from "../config.js?v=26";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -158,8 +159,9 @@ async function pool(items, n, fn) {
 /* jobs: [{ row, kind: "paper" | "data", urls, source, name, title, dataset, size, repo, copy }], every file found
    (copy: false when its repository does not let browsers download it and no file relay is connected: listed only;
    source: the file's own address, when urls lead through the relay); rows: the CSV's data rows, one per result (the
-   "Saved in Drive" column is added here). onSignIn: called when the sign-in runs out; resolves once connected again. */
-export async function saveSearch({ title, header, rows, jobs, detailsHtml, maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
+   "Saved in Drive" column is added here); ris: the same results as a RIS file, for reference managers and screening
+   tools. onSignIn: called when the sign-in runs out; resolves once connected again. */
+export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
   signIn = onSignIn;
   try {
     const root = await appFolder();
@@ -210,6 +212,7 @@ export async function saveSearch({ title, header, rows, jobs, detailsHtml, maxFi
     onProgress("Saving the results as a Google Sheet…");
     const sheet = await upload({ name: "Results", mimeType: SHEET, parents: [folder.id] },
       new Blob([csvOf([[...header, "Saved in Drive"], ...rows.map((r, i) => [...r, saved[i].join(" | ")])])], { type: "text/csv" }));
+    if (ris) await upload({ name: "Results.ris", parents: [folder.id] }, new Blob([ris], { type: "application/x-research-info-systems" }));
     let files = null;
     if (jobs.length) {
       onProgress("Listing every file in a sheet…");

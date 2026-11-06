@@ -3,8 +3,8 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=25";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=25";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=26";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=26";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
@@ -101,22 +101,25 @@ const OA_TYPES = { article: "a", preprint: "p", review: "v", book: "b", "book-ch
 const OA_FILTER_TYPES = { a: "article", p: "preprint", v: "review", b: "book|book-chapter", d: "dataset", t: "dissertation" };
 const OA_FIELDS = "id,doi,display_name,publication_year,publication_date,type,language,primary_location,best_oa_location,open_access,authorships,keywords,abstract_inverted_index,cited_by_count";
 
+/* The whole abstract (the page shows its start; the sheets and the RIS file get all of it). */
 function abstractOf(inv) {
   if (!inv) return "";
   const words = [];
-  for (const [w, ps] of Object.entries(inv)) for (const p of ps) if (p < 120) words[p] = w;
-  return snippet(words.filter(Boolean).join(" "), 400);
+  for (const [w, ps] of Object.entries(inv)) for (const p of ps) if (p < 3000) words[p] = w;
+  return snippet(words.filter(Boolean).join(" "), 20000);
 }
 
 function fromOpenAlex(w) {
   const loc = w.primary_location || {}, src = loc.source || {}, oa = w.best_oa_location || {};
+  const people = (w.authorships || []).map((a) => (a.author || {}).display_name).filter(Boolean);
+  const full = abstractOf(w.abstract_inverted_index);
   return {
     key: w.doi ? `doi:${w.doi.replace(/^https?:\/\/doi\.org\//, "").toLowerCase()}` : w.id, source: "OpenAlex",
-    kind: OA_TYPES[w.type] || "o", year: w.publication_year || 0, date: w.publication_date || "", title: w.display_name || "(untitled)",
-    authors: authorList((w.authorships || []).map((a) => (a.author || {}).display_name).filter(Boolean)),
+    kind: OA_TYPES[w.type] || "o", type: w.type || "", year: w.publication_year || 0, date: w.publication_date || "", title: w.display_name || "(untitled)",
+    authors: authorList(people), people,
     venue: src.display_name || "", doi: (w.doi || "").replace(/^https?:\/\/doi\.org\//, ""),
     url: w.doi ? "" : loc.landing_page_url || w.id, pdf: oa.pdf_url || "", lang: w.language || "",
-    keywords: (w.keywords || []).map((k) => k.display_name).slice(0, 8), abstract: abstractOf(w.abstract_inverted_index),
+    keywords: (w.keywords || []).map((k) => k.display_name).slice(0, 8), abstract: snippet(full, 400), full,
     open: !!(w.open_access || {}).is_oa, cited: w.cited_by_count || 0,
   };
 }
@@ -189,7 +192,7 @@ export const studies = {
     const lists = answers.map((a, i) => {
       if (a.status === "rejected") {
         if (i === 0) throw new Error(friendly(a.reason, "OpenAlex"));
-        notes.push(`${friendly(a.reason, "OpenAlex")} Search ${i + 1} of ${parts.length} (more translations) was left out.`);
+        notes.push(`${friendly(a.reason, "OpenAlex").replace(/[^.]$/, "$&.")} Search ${i + 1} of ${parts.length} (more translations) was left out.`);
         return [];
       }
       total += a.value.count;
@@ -209,10 +212,10 @@ function fromDataCite(d) {
   const desc = (a.descriptions || []).find((x) => x.descriptionType === "Abstract") || (a.descriptions || [])[0] || {};
   return {
     key: `doi:${(a.doi || "").toLowerCase()}`, source: "DataCite", kind: "d", year: +a.publicationYear || 0, date: String(a.publicationYear || ""),
-    title: ((a.titles || [])[0] || {}).title || "(untitled)", authors: authorList((a.creators || []).map((c) => c.name).filter(Boolean)),
+    title: ((a.titles || [])[0] || {}).title || "(untitled)", authors: authorList((a.creators || []).map((c) => c.name).filter(Boolean)), people: (a.creators || []).map((c) => c.name).filter(Boolean),
     venue: typeof a.publisher === "object" ? (a.publisher || {}).name || "" : a.publisher || "", doi: a.doi || "", url: "", pdf: "",
     lang: (a.language || "").slice(0, 2), keywords: (a.subjects || []).map((s) => s.subject).filter(Boolean).slice(0, 8),
-    abstract: snippet(stripHtml(desc.description || ""), 400), open: true, cited: a.citationCount || 0,
+    abstract: snippet(stripHtml(desc.description || ""), 400), full: snippet(stripHtml(desc.description || ""), 20000), open: true, cited: a.citationCount || 0,
     size: (a.sizes || []).join(", "), license: ((a.rightsList || [])[0] || {}).rights || "", landing: a.url || "",
   };
 }
@@ -222,9 +225,9 @@ function fromZenodo(r) {
   const open = m.access_right === "open";
   return {
     key: `doi:${(r.doi || m.doi || `zenodo:${r.id}`).toLowerCase()}`, source: "Zenodo", kind: "d", year: +(m.publication_date || "").slice(0, 4) || 0,
-    date: m.publication_date || "", title: m.title || "(untitled)", authors: authorList((m.creators || []).map((c) => c.name).filter(Boolean)), venue: "Zenodo",
+    date: m.publication_date || "", title: m.title || "(untitled)", authors: authorList((m.creators || []).map((c) => c.name).filter(Boolean)), people: (m.creators || []).map((c) => c.name).filter(Boolean), venue: "Zenodo",
     doi: r.doi || m.doi || "", url: r.doi ? "" : (r.links || {}).self_html || "", pdf: "", lang: (m.language || "").slice(0, 2),
-    keywords: (m.keywords || []).slice(0, 8), abstract: snippet(stripHtml(m.description || ""), 400), open, cited: 0,
+    keywords: (m.keywords || []).slice(0, 8), abstract: snippet(stripHtml(m.description || ""), 400), full: snippet(stripHtml(m.description || ""), 20000), open, cited: 0,
     license: ((m.license || {}).id || ""),
     files: open ? (r.files || []).map((f) => ({ name: f.key, size: f.size, url: (f.links || {}).self || "" })).filter((f) => f.url) : [],
   };
@@ -234,9 +237,9 @@ function fromDataverse(it) {
   const doi = (it.global_id || "").startsWith("doi:") ? it.global_id.slice(4) : "";
   return {
     key: doi ? `doi:${doi.toLowerCase()}` : it.url, source: "Harvard Dataverse", kind: "d", year: +(it.published_at || "").slice(0, 4) || 0,
-    date: it.published_at || "", title: it.name || "(untitled)", authors: authorList(it.authors || []), venue: it.name_of_dataverse || "Harvard Dataverse",
+    date: it.published_at || "", title: it.name || "(untitled)", authors: authorList(it.authors || []), people: it.authors || [], venue: it.name_of_dataverse || "Harvard Dataverse",
     doi, url: doi ? "" : it.url || "", pdf: "", lang: "", keywords: [...(it.keywords || []), ...(it.subjects || [])].slice(0, 8),
-    abstract: snippet(stripHtml(it.description || ""), 400), open: true, cited: 0, pid: it.global_id || "",
+    abstract: snippet(stripHtml(it.description || ""), 400), full: snippet(stripHtml(it.description || ""), 20000), open: true, cited: 0, pid: it.global_id || "",
   };
 }
 
@@ -246,9 +249,9 @@ function fromOSF(m) {
   const type = ((m.resourceType || [])[0] || {})["@id"] || "";
   return {
     key: doi ? `doi:${doi.toLowerCase()}` : m["@id"] || "", source: "OSF", kind: "d", year: +val(m.dateCreated).slice(0, 4) || 0,
-    date: val(m.dateCreated), title: val(m.title) || "(untitled)", authors: authorList((m.creator || []).map((c) => val(c.name)).filter(Boolean)),
+    date: val(m.dateCreated), title: val(m.title) || "(untitled)", authors: authorList((m.creator || []).map((c) => val(c.name)).filter(Boolean)), people: (m.creator || []).map((c) => val(c.name)).filter(Boolean),
     venue: /Registration/.test(type) ? "OSF Registries" : "OSF", doi, url: doi ? "" : m["@id"] || "", pdf: "", lang: "",
-    keywords: (m.keyword || []).map((k) => k["@value"]).filter(Boolean).slice(0, 8), abstract: snippet(val(m.description), 400),
+    keywords: (m.keyword || []).map((k) => k["@value"]).filter(Boolean).slice(0, 8), abstract: snippet(val(m.description), 400), full: snippet(val(m.description), 20000),
     open: true, cited: 0, license: val(((m.rights || [])[0] || {}).name), osf: m["@id"] || "", landing: m["@id"] || "",
   };
 }
@@ -259,10 +262,10 @@ function fromOpenAIRE(r) {
   const url = (inst.urls || [])[0] || "";
   return {
     key: doi ? `doi:${doi.toLowerCase()}` : `openaire:${r.id}`, source: "OpenAIRE", kind: "d", year: +(r.publicationDate || "").slice(0, 4) || 0,
-    date: r.publicationDate || "", title: r.mainTitle || "(untitled)", authors: authorList((r.authors || []).map((a) => a.fullName).filter(Boolean)),
+    date: r.publicationDate || "", title: r.mainTitle || "(untitled)", authors: authorList((r.authors || []).map((a) => a.fullName).filter(Boolean)), people: (r.authors || []).map((a) => a.fullName).filter(Boolean),
     venue: r.publisher || (inst.hostedBy || {}).value || "", doi, url: doi ? "" : url, pdf: "", lang: OPENAIRE_LANGS[(r.language || {}).code] || "",
     keywords: (r.subjects || []).map((s) => (s.subject || {}).value).filter((v) => v && !/^(\d|FOS:)/.test(v)).slice(0, 8),
-    abstract: snippet(stripHtml((r.descriptions || [])[0] || ""), 400), open: !/closed|restricted|embargo/i.test((r.bestAccessRight || {}).label || ""),
+    abstract: snippet(stripHtml((r.descriptions || [])[0] || ""), 400), full: snippet(stripHtml((r.descriptions || [])[0] || ""), 20000), open: !/closed|restricted|embargo/i.test((r.bestAccessRight || {}).label || ""),
     cited: ((r.indicators || {}).citationImpact || {}).citationCount || 0, license: inst.license || "", landing: url,
   };
 }

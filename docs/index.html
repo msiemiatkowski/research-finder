@@ -3,12 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Research Finder</title>
-  <meta name="description" content="Find studies and the datasets behind them, in 40 languages, and save everything to your Google Drive in one organized folder per search: a results sheet, the open PDFs and data files, and a record of how you searched.">
+  <title>Research Finder: studies and open data in 40 languages, for reviews and meta-analyses</title>
+  <meta name="description" content="A free search for systematic reviews, meta-analyses and literature reviews: the wordings researchers use, 40 languages, 270 million studies and five data repositories, saved to your Google Drive with a record of the search.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Research Finder">
+  <meta property="og:description" content="A free search for systematic reviews, meta-analyses and literature reviews: the wordings researchers use, 40 languages, 270 million studies and five data repositories, saved to your Google Drive with a record of the search.">
+  <meta property="og:url" content="https://msiemiatkowski.github.io/research-finder/">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='13' cy='13' r='8.5' fill='none' stroke='%232f6f6a' stroke-width='3.2'/%3E%3Cpath d='M19.5 19.5 28 28' stroke='%232f6f6a' stroke-width='3.6' stroke-linecap='round'/%3E%3Ccircle cx='13' cy='13' r='2.6' fill='%23c2410c'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=25">
-  <script type="module" src="js/main.js?v=25"></script>
+  <link rel="stylesheet" href="style.css?v=26">
+  <script type="module" src="js/main.js?v=26"></script>
 </head>
 <body>
   <a class="skip" href="#results">Skip to results</a>
@@ -29,9 +33,9 @@
   <main>
     <section class="hero">
       <div class="wrap">
-        <p class="eyebrow">Free · no account · 40 languages · studies and datasets</p>
-        <h1>Find the studies and the data behind them, and keep everything organized</h1>
-        <p class="lead">Research Finder searches research papers and open datasets together, in 40 languages, and saves what it finds into your own Google Drive: one folder per search, every result in a spreadsheet, the open PDFs and data files, and a record of how you searched.</p>
+        <p class="eyebrow">For reviews, meta-analyses and secondary data analysis</p>
+        <h1>Find the studies and data on your topic in 40 languages, with a record of how you found them</h1>
+        <p class="lead">Research Finder adds the other wordings researchers use for your keywords, translates every term into 39 languages and searches about 270 million studies and five open-data repositories. The results, the open PDFs and data files, and the exact queries go into one folder in your own Google Drive.</p>
         <form id="search-form" role="search" autocomplete="off">
           <div class="searchbox">
             <svg class="searchbox-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -41,58 +45,173 @@
           </div>
           <p class="hint">Try
             <button type="button" class="link-btn example">loneliness, older adults</button>,
-            <button type="button" class="link-btn example">microplastics, drinking water</button>,
+            <button type="button" class="link-btn example">mindfulness, anxiety</button>,
             <button type="button" class="link-btn example">Klimawandel, Gesundheit</button>,
-            <button type="button" class="link-btn example">trust in science</button>.
+            <button type="button" class="link-btn example">microplastics, drinking water</button>.
           </p>
         </form>
-      </div>
-    </section>
-
-    <section class="features wrap" aria-label="What Research Finder does">
-      <div class="feature-grid">
-        <article class="feature">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-          <h2>Organized in your Google Drive</h2>
-          <p>Every search becomes its own folder: a <strong>Results</strong> sheet with one row per study or dataset, in the same columns whatever the source, a <strong>Files</strong> sheet with every file found, and the open PDFs and data files in their own folders, each linked from its row.</p>
-        </article>
-        <article class="feature">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-          <h2>Datasets, not just papers</h2>
-          <p>Search DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE next to the 270 million studies in OpenAlex, and save the <strong>open data files themselves</strong>, with a list of every file found and its download link.</p>
-        </article>
-        <article class="feature">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-          <h2>Found in every language</h2>
-          <p>Each keyword is expanded with the <strong>other wordings studies use for it</strong>, read from the studies themselves, and every term is translated into <strong>40 languages</strong>, so research written in Polish, Spanish or Japanese is found too.</p>
-        </article>
-        <article class="feature">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v5h5M10 13h6M10 17h6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-          <h2>Repeatable and reportable</h2>
-          <p>A <strong>Search details</strong> document records your keywords, every term and translation, the filters and the exact queries. Copy the Boolean string for other databases, or export a CSV.</p>
-        </article>
-      </div>
-      <div class="drive-demo" aria-label="A saved search in Google Drive">
-        <p class="drive-demo-title">A saved search in your Drive</p>
-        <ul class="tree">
-          <li class="t-folder">Research Finder</li>
-          <li class="t-folder t-1">microplastics, drinking water — 2026-11-01 10:24</li>
-          <li class="t-sheet t-2">Results <span>Google Sheet · one row per result · links to every saved file</span></li>
-          <li class="t-sheet t-2">Files <span>every file found · download link · saved or why not</span></li>
-          <li class="t-doc t-2">Search details <span>keywords, terms, translations, filters, queries</span></li>
-          <li class="t-folder t-2">Papers <span>open PDFs, named author_year_title</span></li>
-          <li class="t-folder t-2">Datasets <span>one folder per dataset, with its open data files</span></li>
+        <ul class="facts" aria-label="In short">
+          <li>Free and open source</li>
+          <li>No account</li>
+          <li>Runs in your browser</li>
+          <li>Saves to your own Google Drive</li>
         </ul>
       </div>
     </section>
 
     <section id="about" class="panel wrap prose" hidden aria-labelledby="about-title">
       <div class="panel-head">
-        <h2 id="about-title">About Research Finder</h2>
+        <h2 id="about-title">How Research Finder works</h2>
         <button type="button" class="btn btn-ghost close-panel" data-close="about">Close</button>
       </div>
       <div id="about-body"></div>
     </section>
+
+    <div class="landing">
+      <section class="block wrap" aria-labelledby="uses-title">
+        <h2 class="block-title" id="uses-title">What it does for your research</h2>
+
+        <article class="use-main">
+          <div class="use-main-head">
+            <p class="use-tag">Systematic reviews and meta-analyses</p>
+            <h3>The whole search, from the first search string to the search appendix</h3>
+            <p>A review is only as complete as its search: a wording or a language the search leaves out is a study the review leaves out. Research Finder does the slow parts of the search for you and shows every step.</p>
+            <dl class="use-stats">
+              <div><dt>40</dt><dd>languages searched</dd></div>
+              <div><dt>270 M</dt><dd>studies in OpenAlex</dd></div>
+              <div><dt>5</dt><dd>open-data repositories</dd></div>
+              <div><dt>200</dt><dd>studies read for each keyword’s wordings</dd></div>
+            </dl>
+          </div>
+          <ol class="stages">
+            <li><h4>Build the search string</h4><p>For each keyword it reads the 200 studies that match it best and collects the other wordings they use (for “trust in science”, also “trust in scientists” and “trustworthiness of science”), and adds synonyms from Wikidata. You keep or drop every term.</p></li>
+            <li><h4>Search beyond English</h4><p>Every term is also searched in 39 other languages, each translation checked by translating it back into English. Studies published in Polish, Spanish or Japanese are found instead of lost to the language bias of an English-only search.</p></li>
+            <li><h4>Include the grey literature</h4><p>Preprints, theses, datasets and OSF preregistrations are searched next to journal articles, which helps against publication bias.</p></li>
+            <li><h4>Run it in your other databases</h4><p>Copy the whole search as a Boolean string to adapt for Scopus, Web of Science or PsycINFO, or open it in PubMed, Google Scholar or BASE with one click.</p></li>
+            <li><h4>Screen</h4><p>Save up to 2,000 records (10,000 with a free OpenAlex key) with their abstracts and without duplicates: a Google Sheet to screen with your co-authors and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote.</p></li>
+            <li><h4>Collect full texts and data</h4><p>Open-access PDFs and open data files go straight into your Drive, each linked from its record: data for effect sizes a paper does not report, or for an individual participant data meta-analysis.</p></li>
+            <li><h4>Report and update</h4><p>The Search details document records the sources, the date, every term and translation, the filters and the exact queries (PRISMA 2020 items 6 and 7), and the number of records for the flow diagram. Run the queries again when you update the review.</p></li>
+          </ol>
+        </article>
+
+        <div class="use-grid">
+          <article class="use">
+            <p class="use-tag">Literature reviews</p>
+            <h3>For a paper, a thesis or a grant proposal</h3>
+            <ul>
+              <li><b>Size up a topic:</b> each keyword shows how many studies have it in their title or abstract.</li>
+              <li><b>Find the existing reviews first</b> with the Review filter.</li>
+              <li><b>Find the landmark papers and the latest ones:</b> sort by citations or by date, and filter by year, type and open access.</li>
+              <li><b>Widen the search:</b> related phrases, the keywords of matching studies and the topics most often studied with yours are one click away.</li>
+              <li><b>Read in one place:</b> the open PDFs in one folder, named author_year_title.</li>
+            </ul>
+          </article>
+          <article class="use">
+            <p class="use-tag">Secondary data analysis</p>
+            <h3>Open datasets to reanalyze, replicate or teach with</h3>
+            <ul>
+              <li><b>Five repositories at once:</b> DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE.</li>
+              <li><b>The files themselves:</b> one Drive folder per dataset with its open data files, and a sheet listing every file with its size and download link.</li>
+              <li><b>Licenses and DOIs</b> in the results sheet, for citing the data you use.</li>
+              <li><b>Share it with your team:</b> a saved search is an ordinary Drive folder.</li>
+            </ul>
+          </article>
+          <article class="use">
+            <p class="use-tag">Cross-cultural research</p>
+            <h3>What English-only searches miss</h3>
+            <ul>
+              <li><b>Adapted measures:</b> validation studies of a questionnaire in another language are often published in national journals, in that language.</li>
+              <li><b>Local evidence:</b> filter by the language of the study to see what has been published in Polish, Portuguese or Korean.</li>
+              <li><b>You stay in control:</b> every translation is shown, and any term or language can be switched off.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="block wrap" aria-labelledby="how-title">
+        <h2 class="block-title" id="how-title">How a search is built</h2>
+        <p class="block-lead">A real example: the keyword “trust in science”, searched in November 2026. While you search, the page shows every step, and you can change any of them.</p>
+        <ol class="flow">
+          <li>
+            <p class="flow-step">You type</p>
+            <div class="flow-body"><span class="tchip you">trust in science</span></div>
+          </li>
+          <li>
+            <p class="flow-step">The wordings studies use</p>
+            <div class="flow-body">
+              <p>Found in the 200 studies that match best (of 2,378 in OpenAlex), and searched too:</p>
+              <div class="tchips"><span class="tchip">trust in scientists</span><span class="tchip">trustworthiness of science</span><span class="tchip">trusted science</span><span class="tchip">trust science</span><span class="tchip">science trustworthy</span><span class="tchip">scientific trust</span></div>
+              <p>Offered to add: related phrases and the keywords of those studies:</p>
+              <div class="tchips"><span class="tchip off">public trust</span><span class="tchip off">epistemic trust</span><span class="tchip off">science communication</span><span class="tchip off">public understanding of science</span><span class="tchip off">research integrity</span><span class="tchip off">misinformation</span></div>
+            </div>
+          </li>
+          <li>
+            <p class="flow-step">39 more languages</p>
+            <div class="flow-body">
+              <p>175 translations, each translated back into English as a check:</p>
+              <div class="tchips">
+                <span class="tchip"><span lang="pl">zaufanie do nauki</span><i>Polish</i></span><span class="tchip"><span lang="de">Vertrauen in die Wissenschaft</span><i>German</i></span><span class="tchip"><span lang="es">confianza en la ciencia</span><i>Spanish</i></span><span class="tchip"><span lang="pt">confiança na ciência</span><i>Portuguese</i></span><span class="tchip"><span lang="ja">科学への信頼</span><i>Japanese</i></span><span class="tchip"><span lang="zh">对科学的信任</span><i>Chinese</i></span><span class="tchip"><span lang="ru">доверие к науке</span><i>Russian</i></span><span class="tchip"><span lang="ar" dir="rtl">الثقة بالعلم</span><i>Arabic</i></span><span class="tchip"><span lang="tr">bilim insanlarına güven</span><i>Turkish</i></span><span class="tchip"><span lang="ko">과학에 대한 신뢰</span><i>Korean</i></span>
+              </div>
+              <p class="flow-note">Five came back with another meaning and were left out, such as Czech “věda” (just “science”).</p>
+            </div>
+          </li>
+          <li>
+            <p class="flow-step">The search</p>
+            <div class="flow-body">
+              <p>One Boolean query (OR within a keyword, AND between keywords) in the titles and abstracts of OpenAlex, and in the five data repositories. A query longer than a service takes is split into several, English terms first:</p>
+              <pre class="query"><code>("trust in science" OR "trust in scientists" OR "trustworthiness of science" OR "trusted science" OR "trust science" OR "science trustworthy" OR "scientific trust")
+("confianza en la ciencia" OR "confiance dans la science" OR "Vertrauen in die Wissenschaft" OR "confiança na ciência" OR "对科学的信任" OR "доверие к науке" OR "科学への信頼" OR "zaufanie do nauki" OR …)</code></pre>
+            </div>
+          </li>
+          <li>
+            <p class="flow-step">Your Google Drive</p>
+            <div class="flow-body">
+              <ul class="tree" aria-label="A saved search in Google Drive">
+                <li class="t-folder">Research Finder</li>
+                <li class="t-folder t-1">trust in science — 2026-11-07 10:24</li>
+                <li class="t-sheet t-2">Results <span>Google Sheet: one row per study, with its abstract, authors, year, journal, DOI, links and citations</span></li>
+                <li class="t-file t-2">Results.ris <span>the same records for Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview</span></li>
+                <li class="t-sheet t-2">Files <span>every file found, its download link, saved or why not</span></li>
+                <li class="t-doc t-2">Search details <span>sources, date, every term and translation, filters, the exact queries, counts</span></li>
+                <li class="t-folder t-2">Papers <span>the open PDFs, named author_year_title</span></li>
+                <li class="t-folder t-2">Datasets <span>one folder per dataset, with its open data files</span></li>
+              </ul>
+            </div>
+          </li>
+        </ol>
+        <p class="flow-run"><button type="button" class="btn example" data-q="trust in science">Run this search</button></p>
+      </section>
+
+      <section class="block wrap" aria-labelledby="where-title">
+        <h2 class="block-title" id="where-title">Where it searches</h2>
+        <p class="block-lead">Open scholarly databases, asked directly from your browser. No subscription is needed.</p>
+        <dl class="sources">
+          <div><dt>OpenAlex</dt><dd>About 270 million works from every field: articles, preprints, books, theses and datasets. Titles and abstracts, or full texts too.</dd></div>
+          <div><dt>DataCite</dt><dd>Datasets with DOIs from research repositories around the world.</dd></div>
+          <div><dt>Zenodo</dt><dd>CERN’s open repository. Data files are copied into your Drive.</dd></div>
+          <div><dt>Harvard Dataverse</dt><dd>One of the largest open repositories of research data. Data files are copied into your Drive.</dd></div>
+          <div><dt>OSF</dt><dd>Projects and preregistrations from the Open Science Framework.</dd></div>
+          <div><dt>OpenAIRE</dt><dd>Datasets in the European open science graph.</dd></div>
+        </dl>
+        <p class="sources-also">Also used: <b>Wikidata</b> for synonyms and names in other languages, <b>Wikimedia MinT</b> for machine translation, and <b>Semantic Scholar</b> for open versions of papers, such as arXiv preprints.</p>
+      </section>
+
+      <section class="block wrap" aria-labelledby="know-title">
+        <h2 class="block-title" id="know-title">Good to know</h2>
+        <ul class="know">
+          <li><b>Use it with your bibliographic databases.</b> OpenAlex is broad, but a systematic review usually also searches databases such as PsycINFO, MEDLINE, Scopus or Web of Science. The copied search string gives you a head start there.</li>
+          <li><b>Check the translations.</b> They are machine translations, each checked by translating it back. Look through them before relying on them, and switch off any that do not fit.</li>
+          <li><b>Titles and abstracts by default.</b> A study without an abstract in OpenAlex is found only by its title. Searching full texts too finds more, less precisely.</li>
+          <li><b>A free daily allowance.</b> Without a key, OpenAlex allows about 100 searches a day per network. A free personal key, added under Settings, allows ten times more.</li>
+          <li><b>Some files stay as links.</b> Many publishers do not let browsers download their PDFs, and neither do OSF and figshare. Those are listed with their links; a file relay, under Settings, copies OSF and figshare files too.</li>
+        </ul>
+      </section>
+
+      <section class="block wrap" id="maker" aria-labelledby="maker-title" hidden>
+        <h2 class="block-title" id="maker-title">Who made it</h2>
+        <div class="maker" id="maker-body"></div>
+      </section>
+    </div>
 
     <div class="wrap results-wrap">
       <div id="tabs" class="tabs" role="tablist" aria-label="What to search"></div>
