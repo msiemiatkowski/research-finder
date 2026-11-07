@@ -83,7 +83,10 @@ limited to the files the app creates (`drive.file`).
 - Semantic Scholar does not accept API keys sent from web pages, so it is asked anonymously; when it is busy, fewer
   extra PDFs are found.
 - Many publishers do not let browsers download their PDFs. Those stay as links in the "Files" sheet, unless a file
-  relay fetches them (below); publishers that let only browsers in keep them as links even then.
+  relay fetches them (below). In a test in November 2026, a relay fetched 325 of 560 open-access PDFs that a browser
+  could not download. Elsevier (ScienceDirect), Wiley, SAGE, Taylor & Francis, MDPI, De Gruyter and Cairn refused it,
+  and some open archives (HAL, OpenEdition) send a relay on Cloudflare a web page instead of the PDF; those PDFs stay
+  as links. The "Files" sheet says why each one was not saved.
 - Names in other languages come from Wikidata and from machine translation; the back-translation check catches many
   but not all poor translations. Check them before relying on them, for example in a systematic review.
 - OSF and figshare files cannot be copied into Drive by a browser alone; the "Files" sheet has their download links,

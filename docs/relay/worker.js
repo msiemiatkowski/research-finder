@@ -58,7 +58,7 @@ export default {
       return storageFile(url, cors, answer);
     }
     if (!isPublic(url)) return answer(403, { error: "only public web addresses" });
-    const got = await pdfFrom(rewrite(url), { jar: [], fetches: 0 }, 0);
+    const got = await pdfFrom(url, { jar: [], fetches: 0 }, 0);
     if (got.response) {
       const headers = new Headers({ ...cors, "Cache-Control": "no-store", "Content-Type": "application/pdf" });
       for (const h of ["content-length", "content-disposition", "last-modified", "etag"]) {
@@ -98,15 +98,15 @@ function isPublic(url) {
     && !/^[\d.]+$/.test(host) && !host.startsWith("[") && !/(^|\.)(localhost|local|internal|lan|home|arpa)$/.test(host);
 }
 
-/* Addresses that lead to a viewer page rather than the file, rewritten to the file: DSpace 7 repositories
-   (/bitstreams/<id>/download is the web app; the file is at /server/api/core/bitstreams/<id>/content) and Open Journal
-   Systems (/article/view/<article>/<file> shows the PDF in a viewer; /article/download/... is the PDF). */
-function rewrite(url) {
+/* The file behind an address that gave a viewer page instead, or null: in DSpace 7 repositories /bitstreams/<id>/download
+   is the web app (in some of them), and the file is at /server/api/core/bitstreams/<id>/content; in Open Journal
+   Systems /article/view/<article>/<file> shows the PDF in a viewer, and /article/download/... is the PDF. */
+function viewerFile(url) {
   const u = new URL(url);
   const dspace = /^(.*)\/bitstreams\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/download\/?$/i.exec(u.pathname);
-  if (dspace && !/\/server\/api\/core$/.test(dspace[1])) u.pathname = `${dspace[1]}/server/api/core/bitstreams/${dspace[2]}/content`;
+  if (dspace) u.pathname = `${dspace[1]}/server/api/core/bitstreams/${dspace[2]}/content`;
   else u.pathname = u.pathname.replace(/\/article\/view\/(\d+\/\d+)\/?$/, "/article/download/$1");
-  return u;
+  return u.href === new URL(url).href ? null : u;
 }
 
 /* The PDF a link leads to, following redirects (with the cookies sites set on the way) and article pages:
@@ -133,7 +133,7 @@ async function pdfFrom(start, ctx, depth) {
     if (next) {
       if (r.body) r.body.cancel();
       try {
-        url = rewrite(new URL(next, url));
+        url = new URL(next, url);
       } catch {
         return { status: 502, error: "the site sent the relay to an address that does not work" };
       }
@@ -149,8 +149,13 @@ async function pdfFrom(start, ctx, depth) {
     const refused = refusal(r, page);
     if (refused) return refused;
     if (depth >= 2) return { status: 502, error: "the link leads to web pages, not to the PDF" };
-    let last = { status: 502, error: "the link gives a web page, not the PDF (the PDF may not be open)" };
-    for (const link of pdfLinksIn(page, url)) {
+    const links = pdfLinksIn(page, url);
+    const file = viewerFile(url);
+    if (file && !links.some((l) => l.href === file.href)) links.unshift(file);
+    if (!links.length && ROBOT_PAGE.test(page.slice(0, 30000))) return { status: 403, error: ROBOTS };
+    const title = unescape((/<title[^>]*>([^<]{1,300})/i.exec(page) || ["", ""])[1]).replace(/\s+/g, " ").slice(0, 80);
+    let last = { status: 502, error: `the link gives a web page${title ? ` (“${title}”)` : ""}, not the PDF (the PDF may not be open)` };
+    for (const link of links.slice(0, 3)) {
       const got = await pdfFrom(link, ctx, depth + 1);
       if (got.response) return got;
       last = got;
@@ -160,6 +165,10 @@ async function pdfFrom(start, ctx, depth) {
   return { status: 502, error: "too many redirects" };
 }
 
+const ROBOTS = "the site lets only browsers download it (it checks for robots), so the relay cannot";
+// the pages of such checks that come with HTTP 200 (Anubis, DDoS-Guard and others), when a page gives no PDF link
+const ROBOT_PAGE = /anubis_challenge|\.within\.website\/|making sure you(?:'|&#39;|’)re not a bot|checking your browser before|verify (?:that )?you are (?:a )?human|are you a robot|ddos-guard|cf-chl-/i;
+
 /* Why a site's answer is not a page to look into: a check that lets only browsers in, a refusal, a missing file. */
 function refusal(r, page) {
   const s = r.status;
@@ -167,7 +176,7 @@ function refusal(r, page) {
   const check = r.headers.get("cf-mitigated") === "challenge" || r.headers.get("x-amzn-waf-action") || s === 202
     || /Just a moment\.\.\.|challenge-platform|Pardon Our Interruption|Request unsuccessful\. Incapsula/i.test(head)
     || (s !== 200 && /captcha|bot detection|are you a robot|verify (that )?you are (a )?human/i.test(head));
-  if (check) return { status: 403, error: "the site lets only browsers download it (it checks for robots), so the relay cannot" };
+  if (check) return { status: 403, error: ROBOTS };
   if (s === 429) return { status: 429, error: "the site asks to wait before more downloads", retry: r.headers.get("Retry-After") || "10" };
   if (s === 404 || s === 410) return { status: 404, error: `the site says the file is not there (HTTP ${s})` };
   if (s === 401 || s === 403) return { status: 403, error: `the site refused the relay (HTTP ${s})` };
@@ -258,7 +267,8 @@ function pdfLinksIn(page, base) {
   }
   for (const [tag] of page.matchAll(/<a\b[^>]*\bclass\s*=\s*["'][^"']*\b(?:download|obj_galley_link)\b[^>]*>/gi)) {
     const classes = attr(tag, "class").split(/\s+/);
-    if (classes.includes("download") || (classes.includes("obj_galley_link") && classes.includes("pdf"))) out.push(attr(tag, "href"));
+    if (classes.includes("download")) out.push(attr(tag, "href"));
+    else if (classes.includes("obj_galley_link") && classes.includes("pdf")) out.push(attr(tag, "href").replace("/article/view/", "/article/download/"));
   }
   for (const [tag] of page.matchAll(/<(?:iframe|embed|object)\b[^>]*>/gi)) {
     let src = attr(tag, "src") || attr(tag, "data");
@@ -273,7 +283,7 @@ function pdfLinksIn(page, base) {
   for (const href of out) {
     let u;
     try {
-      u = rewrite(new URL(href, base));
+      u = new URL(href, base);
     } catch {
       continue;
     }
