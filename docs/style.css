@@ -392,6 +392,9 @@ body.searching .hero h1 { position: absolute; width: 1px; height: 1px; overflow:
 .save-actions { display: flex; gap: 8px; margin-top: 14px; }
 .save-progress { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
 .save-progress p { margin: 0; }
+.why-list { margin: 6px 0 10px; padding-left: 20px; color: var(--muted); font-size: 13px; }
+.why-list li { margin: 2px 0; }
+#earlier-pick { flex: 1 1 260px; min-width: 0; max-width: 100%; }
 .lead-sm { font-size: 16.5px; color: var(--muted); }
 @media (max-width: 600px) {
   .tree .t-1 { margin-left: 10px; }

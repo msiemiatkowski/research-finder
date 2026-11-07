@@ -1,10 +1,10 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=28";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=28";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=28";
+import { CONFIG } from "../config.js?v=29";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=29";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=29";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=28";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=28";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=29";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=29";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
@@ -480,13 +480,13 @@ function openSave() {
   }
 }
 
-/* What the save dialog says about PDFs, by whether a file relay is connected and fetches publishers' PDFs. */
-function pdfNoteText() {
+/* What a save dialog says about PDFs, by whether a file relay is connected and fetches publishers' PDFs. */
+function pdfNoteText(dialog = "#save") {
   const relay = relayAddress();
   if (relay && local.get("relayPdf", "")) {
     return "PDFs that publishers do not let browsers download are fetched through your file relay. A few publishers let only browsers in; their PDFs stay as links in “Files”.";
   }
-  const settings = (label) => h("button", { type: "button", class: "link-btn", onclick: () => { $("#save").close(); openSettings(); } }, label);
+  const settings = (label) => h("button", { type: "button", class: "link-btn", onclick: () => { $(dialog).close(); openSettings(); } }, label);
   return relay
     ? ["Many publishers do not let browsers download their PDFs; those stay as links in “Files”. OSF preprints come through your file relay; with its current code (", settings("Settings"), ") it fetches publishers' PDFs too."]
     : ["Many publishers do not let browsers download their PDFs; those stay as links in “Files” (", settings("connect a file relay"), " to fetch many of them)."];
@@ -579,11 +579,149 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
       res.csv ? h("span", { class: "note" }, " The results were too many for Google to turn into a sheet, so they are saved as a CSV file, which Google Sheets and Excel open.") : null,
       gotNotes.length ? h("span", { class: "note warn" }, ` ${gotNotes.join(" ")}`) : null,
       listedOnly ? h("span", { class: "note" }, ` ${plural(listedOnly, "file")} from OSF or figshare ${listedOnly === 1 ? "is" : "are"} listed with ${listedOnly === 1 ? "its" : "their"} download link in “Files”; a file relay (Settings) copies them too.`) : null,
-      notSaved ? h("span", { class: "note" }, ` ${plural(notSaved, "file")} could not be saved; “Files” says why.`) : null));
+      notSaved ? h("span", { class: "note" }, ` ${plural(notSaved, "file")} could not be saved; “Files” says why, and `,
+        h("button", { type: "button", class: "link-btn", onclick: () => { $("#save").close(); openEarlier(); } }, "Earlier saves"),
+        " can try them again later.") : null));
     fill($("#drive-result"), h("p", {}, "Saved in your Google Drive: ", links()));
     $("#drive-result").hidden = false;
   } catch (e) {
     fill($("#save-progress"), h("p", { class: "note warn" }, `Not saved: ${e.message}`));
+  } finally {
+    go.disabled = false;
+  }
+}
+
+/* ------------------------------------------------------------------ earlier saves */
+/* Adds to an earlier save the files it did not copy (a site that does not let browsers download them, a size limit, an
+   interruption): reads the save's sheet "Files", tries those files again (through the file relay where it helps), puts
+   the new ones into the save's own folders and updates "Files", "Results" and "Search details". */
+const FILE_COLUMNS = ["Result no.", "Result", "File", "Size (MB)", "Repository", "Download link", "Saved in Drive", "Not saved because"];
+
+async function openEarlier() {
+  const d = $("#earlier"), body = $("#earlier-body");
+  if (!d.open) d.showModal();
+  const intro = h("p", {}, "Add to an earlier save the files it did not copy: for example the PDFs a file relay can fetch, or files a size limit left out. New files go into the save's own folders, and its sheets “Files” and “Results” and its “Search details” are updated.");
+  if (!driveConnected()) {
+    fill(body, intro, h("p", {}, h("button", { type: "button", class: "btn btn-small btn-drive", onclick: async () => {
+      try { await connect(); openEarlier(); } catch (e) { toast(e.message, 5000); }
+    } }, "Connect Google Drive")));
+    return;
+  }
+  fill(body, intro, h("p", {}, spinner(), " Looking for your saves…"));
+  let saves;
+  try {
+    saves = await listSaves();
+  } catch (e) {
+    fill(body, intro, h("p", { class: "note warn" }, `Your saves could not be listed: ${e.message}`));
+    return;
+  }
+  if (!saves.length) { fill(body, intro, h("p", { class: "note" }, "There is no save in your “Research Finder” folder yet.")); return; }
+  const pick = h("select", { id: "earlier-pick" }, saves.map((s) => h("option", { value: s.id }, s.name)));
+  const box = h("div", { id: "earlier-detail" });
+  fill(body, intro, h("p", { class: "save-row" }, h("label", { for: "earlier-pick" }, "Save "), pick), box);
+  const show = () => showEarlierSave(saves.find((s) => s.id === pick.value), box);
+  pick.addEventListener("change", show);
+  show();
+}
+
+async function showEarlierSave(save, box) {
+  fill(box, h("p", {}, spinner(), " Reading the save…"));
+  let s;
+  try {
+    s = await readSave(save);
+  } catch (e) {
+    fill(box, h("p", { class: "note warn" }, `This save could not be read: ${e.message}`));
+    return;
+  }
+  if ($("#earlier-pick").value !== save.id) return;   // another save was chosen meanwhile
+  const say = (text, cls = "note") => fill(box, h("p", { class: cls }, text));
+  if (!s.files) return say("This save has no sheet “Files”, so Research Finder cannot tell which files are missing (saves made with the first versions, before 2 November 2026, have none).");
+  if (!s.fileRows) return say("The sheet “Files” of this save could not be read.", "note warn");
+  const head = s.fileRows[0] || [];
+  const gone = FILE_COLUMNS.filter((n) => !head.includes(n));
+  if (gone.length) return say(`The sheet “Files” no longer has the column${gone.length > 1 ? "s" : ""} ${gone.map((n) => `“${n}”`).join(", ")}, so Research Finder cannot use it.`, "note warn");
+  const c = Object.fromEntries(FILE_COLUMNS.map((n) => [n, head.indexOf(n)]));
+  const lines = s.fileRows.map((r, line) => ({ r, line })).slice(1).filter(({ r }) => r[c["Download link"]]);
+  const missing = lines.filter(({ r }) => !r[c["Saved in Drive"]]);
+  const source = s.resultRows ? s.resultRows[0].indexOf("Source") : -1;
+  const studies = s.papers ? true : s.datasets ? false : Boolean(s.resultRows && s.resultRows[1] && s.resultRows[1][source] === "OpenAlex");
+  const why = new Map();
+  for (const { r } of missing) why.set(r[c["Not saved because"]] || "no reason given", (why.get(r[c["Not saved because"]] || "no reason given") || 0) + 1);
+  const reasons = [...why].sort((a, b) => b[1] - a[1]);
+  const totalLimit = h("select", { id: "earlier-total", "aria-label": "Size limit for all the new files" },
+    [500 * MB, 2e9, 5e9, 15e9].map((b) => h("option", { value: b, selected: b === 2e9 }, sizeName(b))));
+  const fileLimit = h("select", { id: "earlier-file", "aria-label": "Size limit for one file" },
+    [50 * MB, 250 * MB, 1e9, 2e9].map((b) => h("option", { value: b, selected: b === 250 * MB }, sizeName(b))));
+  const progress = h("div", { id: "earlier-progress", class: "save-progress", role: "status", "aria-live": "polite" });
+  const signin = h("div", { id: "earlier-signin", class: "save-progress" });
+  const go = h("button", { type: "button", class: "btn btn-primary", id: "earlier-go" }, missing.length === 1 ? "Add the missing file" : `Add the ${fmt(missing.length)} missing files`);
+  go.onclick = () => runFill(s, missing, c, studies, Number(fileLimit.value), Number(totalLimit.value), go, progress, signin);
+  fill(box,
+    h("p", {}, `${plural(lines.length, "file")} listed: ${fmt(lines.length - missing.length)} saved, ${fmt(missing.length)} not saved. `,
+      link(s.link, "Open the folder"), " · ", link(s.files.webViewLink, "Files")),
+    missing.length ? [
+      h("ul", { class: "why-list" }, reasons.slice(0, 5).map(([k, n]) => h("li", {}, `${fmt(n)}: ${k}`)),
+        reasons.length > 5 ? h("li", {}, `${fmt(reasons.slice(5).reduce((a, [, n]) => a + n, 0))}: other reasons`) : null),
+      h("p", { class: "save-row" }, h("span", {}, "Up to"), totalLimit, h("span", {}, "more in all, files up to"), fileLimit, h("span", {}, "each")),
+      h("p", { class: "note" }, studies ? pdfNoteText("#earlier") : relayAddress() ? "OSF and figshare files come through your file relay."
+        : ["OSF and figshare files need a file relay (", h("button", { type: "button", class: "link-btn", onclick: () => { $("#earlier").close(); openSettings(); } }, "Settings"), ")."]),
+      h("p", { class: "note" }, "This takes a while for many files: keep this tab open."),
+      h("div", { class: "save-actions" }, go), signin, progress,
+    ] : h("p", { class: "note" }, "Every file of this save is in your Drive."));
+}
+
+async function runFill(s, missing, c, studies, maxFile, maxTotal, go, box, signinBox) {
+  const progress = (m) => fill(box, spinner(), m);
+  go.disabled = true;
+  try {
+    if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
+    const relay = relayAddress();
+    if (relay && studies) progress("Asking your file relay what it fetches…");
+    const pdfRelay = relay && studies && (await checkRelay(relay)).pdf;
+    if (relay && studies) local.set("relayPdf", pdfRelay ? "1" : "");
+    const rh = s.resultRows ? s.resultRows[0] : [];
+    const year = rh.indexOf("Year"), title = rh.indexOf("Title");
+    const jobs = missing.map(({ r, line }) => {
+      const row = (parseInt(r[c["Result no."]], 10) || 0) - 1;
+      const result = (s.resultRows && s.resultRows[row + 1]) || [];
+      return { row, line, kind: studies ? "paper" : "data", source: r[c["Download link"]], urls: [r[c["Download link"]]], name: r[c.File] || "file",
+        size: Math.round((parseFloat(r[c["Size (MB)"]]) || 0) * MB), title: r[c.Result] || "", repo: r[c.Repository] || "",
+        dataset: `${result[year] || "n.d."} ${String(result[title] || r[c.Result] || "").slice(0, 80)}` };
+    });
+    if (studies) {
+      progress("Looking at the links…");
+      await pool(jobs, 4, async (j) => {
+        const urls = await pdfLinks(j.urls);
+        j.urls = pdfRelay ? [...urls.filter((u) => !needsRelay(u)), ...urls.map(relayed)] : relay ? urls.map((u) => (needsRelay(u) ? relayed(u) : u)) : urls;
+      });
+    } else {
+      for (const j of jobs) {
+        if (!needsRelay(j.source)) continue;
+        j.copy = Boolean(relay);
+        if (relay) j.urls = [relayed(j.source)];
+      }
+    }
+    const res = await fillSave({
+      save: s, jobs, maxFile, maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
+      note: (st) => `<h2>Files added later</h2><p>On ${esc(new Date().toLocaleString("en-GB"))}, the ${fmt(jobs.length)} files this save had not copied were tried again with Research Finder: ${fmt(st.papers + st.dataFiles)} were added (${(st.bytes / MB).toFixed(1)} MB)${st.relayed ? `, ${fmt(st.relayed)} of them through the file relay ${esc(relayAddress())}` : ""}. The sheet “Files” shows which, and why the others were not saved.</p>`,
+      onSignIn: () => new Promise((resolve, reject) => {
+        fill(signinBox, h("p", { class: "note warn" }, "Google's sign-in has run out (it lasts an hour). "),
+          h("button", { type: "button", class: "btn btn-small btn-primary", onclick: async () => {
+            try { await connect(); fill(signinBox); resolve(); } catch (e) { reject(e); }
+          } }, "Connect again and continue"));
+      }),
+    });
+    const added = res.papers + res.dataFiles, still = jobs.length - added;
+    fill(box, h("p", {}, h("strong", {}, "Added: "), `${plural(added, "file")} (${(res.bytes / MB).toFixed(1)} MB${res.relayed ? `; ${fmt(res.relayed)} through your file relay` : ""}). `,
+      link(s.link, "Open the folder"), " · ", link(res.files.webViewLink, res.files.replaced ? "Files" : "Files (updated)"),
+      res.results ? [" · ", link(res.results.webViewLink, res.results.replaced ? "Results" : "Results (updated)")] : null,
+      still ? h("span", { class: "note" }, ` ${plural(still, "file")} still could not be saved; “Files” says why.`) : null,
+      res.files.replaced ? null : h("span", { class: "note warn" }, " Google did not let Research Finder change the sheet “Files”, so the updated list is a new sheet next to it."),
+      res.results && !res.results.replaced ? h("span", { class: "note warn" }, " The results with the new links are a new sheet next to “Results”.") : null,
+      res.resultsError ? h("span", { class: "note warn" }, ` The new links could not be added to “Results” (${res.resultsError}); “Files” has them.`) : null,
+      res.detailsError ? h("span", { class: "note warn" }, ` “Search details” could not be updated (${res.detailsError}).`) : null));
+  } catch (e) {
+    fill(box, h("p", { class: "note warn" }, `Stopped: ${e.message}`));
   } finally {
     go.disabled = false;
   }
@@ -727,6 +865,8 @@ function openSettings() {
       ? h("p", {}, "Connected. ", h("button", { type: "button", class: "btn btn-small", onclick: () => { disconnect(); openSettings(); } }, "Disconnect"))
       : h("p", {}, h("button", { type: "button", class: "btn btn-small btn-drive", onclick: async () => { try { await connect(); openSettings(); } catch (e) { toast(e.message, 5000); } } }, "Connect Google Drive"),
         " Research Finder can only see the files it saves, in a folder called “Research Finder”.");
+  const earlier = driveConfigured() ? h("p", { class: "note" }, "Files a save could not copy, for example before you connected a file relay, can be added to it later: ",
+    h("button", { type: "button", class: "link-btn", onclick: () => { d.close(); openEarlier(); } }, "Earlier saves"), ".") : null;
   fill($("#settings-body"),
     h("h3", {}, "Search in these languages"),
     h("p", { class: "note" }, "The names and translations of your keywords in these languages are added to every search. Fewer languages make shorter queries."),
@@ -734,7 +874,7 @@ function openSettings() {
       h("button", { type: "button", class: "btn btn-small", onclick: () => { LANGS.forEach((l) => setLang(l, true)); openSettings(); } }, "All"),
       h("button", { type: "button", class: "btn btn-small", onclick: () => { LANGS.forEach((l) => setLang(l, false)); openSettings(); } }, "English only")),
     langs,
-    h("h3", {}, "Google Drive"), drive,
+    h("h3", {}, "Google Drive"), drive, earlier,
     h("h3", {}, h("label", { for: "set-relay" }, "File relay (optional)")),
     h("p", { class: "note" }, "OSF and figshare do not let web pages download their files, and neither do many publishers for their open-access PDFs, so Research Finder lists those with their links. A file relay copies them into your Drive too: a small free program on a Cloudflare account that fetches each file and passes it straight on, keeping nothing. You decide whether to connect one; its address is kept only in this browser."),
     h("div", { class: "relay-row" }, relay, h("button", { type: "button", class: "btn btn-small", onclick: check }, "Check"),
@@ -921,6 +1061,7 @@ $("#drive-btn").addEventListener("click", async () => {
   try { await connect(); toast("Google Drive connected"); } catch (e) { toast(e.message, 5000); }
 });
 $("#settings-btn").addEventListener("click", openSettings);
+$("#earlier-close").addEventListener("click", () => $("#earlier").close());
 $("#search-form").addEventListener("submit", (e) => { e.preventDefault(); setQuery($("#q").value); });
 document.querySelectorAll(".example").forEach((b) => b.addEventListener("click", () => {
   setQuery(b.dataset.q || b.textContent);

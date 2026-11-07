@@ -40,6 +40,11 @@ Research Finder/
     Datasets/        one folder per dataset with its open data files
 ```
 
+Files a save did not copy (a site that does not let browsers download them, a size limit, an interruption) can be
+added to it later: Settings > "Earlier saves" lists the searches saved in the folder, reads a save's "Files" sheet,
+tries those files again (through a file relay where one helps), puts the new ones into the save's own folders and
+updates "Files", the "Saved in Drive" column of "Results" and "Search details".
+
 The results shown can also be exported without Drive, as CSV or RIS. The site is private by design: a static page
 with no server, no account and no tracking. The browser talks to the services directly, and Google Drive access is
 limited to the files the app creates (`drive.file`).
@@ -136,7 +141,7 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
 (Google sign-in and the folder structure), `main.js` (the page) and `util.js`. Module imports carry a version
-(`?v=28`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=29`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 
