@@ -3,8 +3,8 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=26";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=26";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=27";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=27";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
@@ -201,6 +201,51 @@ export const studies = {
     });
     return { total, items: merge(lists, q.sort), more, dropped, parts: parts.length, notes };
   },
+  /* Whether a part of the search has more results than OpenAlex pages through without a key (10,000). */
+  capped: (q) => studies.queries(q).parts.some((s) => (partCount.get(openalexQuery(q, s).toString()) || 0) > 10000),
+  /* For saving: every result, round by round (200 from each part of the search a round, merged as on the page, each
+     study once). Without a key OpenAlex pages through the first 10,000 results of a query; with one, its cursor goes
+     to the end. A part that fails stops; when OpenAlex refuses (the day's allowance is spent), everything stops.
+     `notes` says what happened. */
+  async *all(q, notes = []) {
+    const cursor = Boolean(local.get("openalexKey", ""));
+    const parts = studies.queries(q).parts.map((search) => ({ search, next: cursor ? "*" : 1, done: false }));
+    const seen = new Set();
+    while (parts.some((s) => !s.done)) {
+      const answers = await Promise.allSettled(parts.map(async (s, i) => {
+        if (s.done) return [];
+        const p = openalexQuery(q, s.search);
+        p.set("per-page", "200");
+        if (cursor) p.set("cursor", s.next); else p.set("page", String(s.next));
+        const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 60000, cacheable: false });
+        const items = (j.results || []).map(fromOpenAlex);
+        if (cursor) {
+          s.next = j.meta.next_cursor;
+          s.done = !s.next || !items.length;
+        } else {
+          s.next += 1;
+          s.done = !items.length || (s.next - 1) * 200 >= Math.min(j.meta.count, 10000);
+          if (s.done && j.meta.count > 10000) {
+            notes.push(`Without an OpenAlex key, only the first 10,000 of the ${j.meta.count.toLocaleString("en")} results of search ${i + 1} could be reached; a free key (Settings) reaches all of them.`);
+          }
+        }
+        return items;
+      }));
+      answers.forEach((a, i) => {
+        if (a.status !== "rejected") return;
+        parts[i].done = true;
+        const refused = openalexRefusal(a.reason);
+        if (refused) {
+          parts.forEach((s) => { s.done = true; });
+          notes.push(`The save stopped early. ${refused}`);
+        } else {
+          notes.push(`${friendly(a.reason, "OpenAlex").replace(/[^.]$/, "$&.")} Search ${i + 1} of ${parts.length} stopped early.`);
+        }
+      });
+      yield merge(answers.map((a) => (a.status === "fulfilled" ? a.value : [])), q.sort)
+        .filter((r) => !seen.has(r.key) && seen.add(r.key));
+    }
+  },
 };
 
 /* ------------------------------------------------------------------ data repositories */
@@ -270,6 +315,17 @@ function fromOpenAIRE(r) {
   };
 }
 
+/* One entry per dataset: versions have their own DOIs, a dataset can be in several repositories, and an OSF project
+   and its registration are copies, so records with the same title and year count once; short generic titles ("Data",
+   "Analyses"), which different projects share, count by their keys only. True for a record not seen before. */
+function firstOf(r, seen) {
+  const title = norm(r.title), same = title.split(" ").length >= 3 ? `${title}|${r.year}` : "";
+  if (seen.has(r.key) || (same && seen.has(same))) return false;
+  seen.add(r.key);
+  if (same) seen.add(same);
+  return true;
+}
+
 /* OSF's search pages by cursor: the address of each page comes with the one before it. */
 const troveNext = new Map(), troveTotal = new Map();
 async function trovePage(p, page) {
@@ -315,6 +371,7 @@ const REPOS = {
   Zenodo: async ([q], f, sort, page, size) => {
     const per = Math.min(size, 25), n = Math.ceil(size / per), out = { total: 0, items: [] };
     for (let k = 0; k < n; k++) {             // 25 a page without an account
+      if (k) await new Promise((r) => setTimeout(r, 1000));          // about 60 requests a minute, Zenodo's limit
       const p = new URLSearchParams({ q: q + (f.from || f.to ? ` AND publication_date:[${f.from || 1000}-01-01 TO ${f.to || 2999}-12-31]` : ""), type: "dataset", size: String(per), page: String((page - 1) * n + k + 1) });
       p.set("sort", sort === "new" ? "newest" : "bestmatch");
       const j = await getJSON(`https://zenodo.org/api/records?${p}`, { timeout: 25000 });
@@ -398,17 +455,21 @@ export const datasets = {
       if (s.status === "fulfilled") { lists.push(s.value.items); totals[names[i]] = s.value.total; }
       else notes.push(friendly(s.reason, names[i]));
     });
-    // one entry per dataset: versions have their own DOIs, and a dataset can be in several repositories
-    const seen = new Set(), items = [];
-    for (const r of interleave(lists)) {
-      const same = `${norm(r.title)}|${r.year}`;
-      if (seen.has(r.key) || seen.has(same)) continue;
-      seen.add(r.key);
-      seen.add(same);
-      items.push(r);
-    }
+    const seen = new Set();
+    const items = interleave(lists).filter((r) => firstOf(r, seen));
     const total = Object.values(totals).reduce((a, b) => a + b, 0);
     return { total, items, more: Object.values(totals).some((t) => t > page * size), notes, totals, dropped };
+  },
+  /* For saving: every dataset, 200 from each repository a page, each dataset once, until the repositories have no more
+     (Zenodo and DataCite page through their first 10,000). */
+  async *all(q, notes = []) {
+    const seen = new Set();
+    for (let page = 1; page <= 100; page++) {
+      const res = await datasets.search(q, page, 200);
+      notes.push(...(res.notes || []));
+      yield res.items.filter((r) => firstOf(r, seen));
+      if (!res.more || !res.items.length) return;
+    }
   },
 };
 

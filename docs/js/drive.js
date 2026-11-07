@@ -10,7 +10,7 @@
        Search details     Google Doc: where and how the search was made (keywords, every term, filters, the queries)
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset */
-import { CONFIG } from "../config.js?v=26";
+import { CONFIG } from "../config.js?v=27";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -210,22 +210,32 @@ export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, 
       onProgress(`Saving files: ${fmtN(++done)} of ${fmtN(jobs.length)}${bytes ? ` (${(bytes / 1e6).toFixed(0)} MB so far)` : ""}`);
     });
     onProgress("Saving the results as a Google Sheet…");
-    const sheet = await upload({ name: "Results", mimeType: SHEET, parents: [folder.id] },
-      new Blob([csvOf([[...header, "Saved in Drive"], ...rows.map((r, i) => [...r, saved[i].join(" | ")])])], { type: "text/csv" }));
+    let csv = false;
+    // a table too large for Google to turn into a sheet is kept as a CSV file instead
+    const table = async (name, list) => {
+      const blob = new Blob([csvOf(list)], { type: "text/csv" });
+      try {
+        return await upload({ name, mimeType: SHEET, parents: [folder.id] }, blob);
+      } catch (e) {
+        if (/sign-in/.test(e.message)) throw e;
+        csv = true;
+        return upload({ name: `${name}.csv`, parents: [folder.id] }, blob);
+      }
+    };
+    const sheet = await table("Results", [[...header, "Saved in Drive"], ...rows.map((r, i) => [...r, saved[i].join(" | ")])]);
     if (ris) await upload({ name: "Results.ris", parents: [folder.id] }, new Blob([ris], { type: "application/x-research-info-systems" }));
     let files = null;
     if (jobs.length) {
       onProgress("Listing every file in a sheet…");
-      const list = [["Result no.", "Result", "File", "Size (MB)", "Repository", "Download link", "Saved in Drive", "Not saved because"],
-        ...jobs.map((j) => [j.row + 1, j.title, j.name, j.size ? (j.size / 1e6).toFixed(2) : "", j.repo || "", j.source || j.urls[0] || "", j.link || "", j.link ? "" : j.why || ""])];
-      files = await upload({ name: "Files", mimeType: SHEET, parents: [folder.id] }, new Blob([csvOf(list)], { type: "text/csv" }));
+      files = await table("Files", [["Result no.", "Result", "File", "Size (MB)", "Repository", "Download link", "Saved in Drive", "Not saved because"],
+        ...jobs.map((j) => [j.row + 1, j.title, j.name, j.size ? (j.size / 1e6).toFixed(2) : "", j.repo || "", j.source || j.urls[0] || "", j.link || "", j.link ? "" : j.why || ""])]);
     }
     onProgress("Writing the search details…");
     const html = typeof detailsHtml === "function" ? detailsHtml({ papers, dataFiles, bytes, failed }) : detailsHtml;
     const doc = await upload({ name: "Search details", mimeType: "application/vnd.google-apps.document", parents: [folder.id] },
       new Blob([html], { type: "text/html" }));
     return { folder: folder.webViewLink, sheet: sheet.webViewLink, files: files && files.webViewLink, doc: doc.webViewLink,
-      papers, dataFiles, bytes, failed };
+      papers, dataFiles, bytes, failed, csv };
   } finally {
     signIn = null;
   }

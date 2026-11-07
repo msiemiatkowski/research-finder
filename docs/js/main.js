@@ -1,10 +1,10 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=26";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=26";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=26";
+import { CONFIG } from "../config.js?v=27";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=27";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=27";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=26";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=26";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=27";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=27";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
@@ -404,10 +404,8 @@ function downloadFile(name, text, type) {
   document.body.append(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  toast(`Exported ${plural(results.length, "result")}${more ? `, the ones loaded so far (Save to Google Drive saves up to ${fmt(saveMax())})` : ""}`, 4000);
+  toast(`Exported ${plural(results.length, "result")}${more ? ", the ones loaded so far (Save to Google Drive can save all of them)" : ""}`, 4000);
 }
-// OpenAlex pages 200 studies at a time; without a key, its daily allowance covers about 2,000 a day
-const saveMax = () => (state.tab === "studies" && !local.get("openalexKey", "") ? 2000 : 10000);
 const fileDate = () => new Date().toISOString().slice(0, 10);
 
 function exportCsv() {
@@ -425,11 +423,22 @@ function openSave() {
   const d = $("#save");
   if (!driveConfigured()) { toast("Saving to Google Drive is not set up on this copy of the site.", 4000); return; }
   const studiesTab = state.tab === "studies";
-  const most = Math.min(total, saveMax());
-  const counts = [...new Set([results.length, 100, 500, 1000, 2000, 5000, most].filter((n) => n && n <= Math.max(results.length, most)))].sort((a, b) => a - b);
+  const counts = [...new Set([results.length, 100, 500, 1000, 2000, 5000, 10000, total].filter((n) => n && n <= total))].sort((a, b) => a - b);
   const pick = counts.filter((n) => n <= 1000).pop() || counts[0];
   const howMany = h("select", { id: "save-count" }, counts.map((n) => h("option", { value: n, selected: n === pick },
-    n === results.length ? `${fmt(n)} (the ones shown)` : n === total ? `all ${fmt(n)}` : `the first ${fmt(n)}`)));
+    n === total ? `all ${fmt(n)}` : n === results.length ? `${fmt(n)} (the ones shown)` : `the first ${fmt(n)}`)));
+  // what a large save of studies asks of OpenAlex: 200 results a request, about 100 requests a day without a key
+  const sizeNote = h("p", { class: "note" });
+  const explain = () => {
+    const n = Number(howMany.value), key = Boolean(local.get("openalexKey", ""));
+    if (!studiesTab || n <= results.length) return fill(sizeNote);
+    const asks = Math.ceil(n / 200);
+    fill(sizeNote, `Getting ${fmt(n)} results takes about ${plural(asks, "request")} to OpenAlex, 200 results each.`,
+      !key && asks > 25 ? " Without a key, OpenAlex allows about 100 requests a day for everyone on your network, so a save this large may stop early: what it got by then is saved, and the save says how far it got. A free OpenAlex key (Settings) allows ten times more." : "",
+      !key && n > 10000 && SOURCES.studies.capped(query()) ? " Without a key, OpenAlex also reaches only the first 10,000 results of each search; a key reaches all of them." : "");
+  };
+  howMany.addEventListener("change", explain);
+  explain();
   const files = h("input", { type: "checkbox", id: "save-files", checked: true });
   const totalLimit = h("select", { id: "save-total", "aria-label": "Size limit for all files" },
     [500 * MB, 2e9, 5e9, 15e9].map((b) => h("option", { value: b, selected: b === 2e9 }, sizeName(b))));
@@ -445,6 +454,7 @@ function openSave() {
       studiesTab ? h("li", {}, h("strong", {}, "Papers/"), " — the open PDFs (also open versions found through Semantic Scholar, such as arXiv preprints)")
         : h("li", {}, h("strong", {}, "Datasets/"), " — one folder per dataset with its open data files")),
     h("p", { class: "save-row" }, h("label", { for: "save-count" }, "Save "), howMany, h("span", {}, ` of ${fmt(total)} results`)),
+    sizeNote,
     h("p", { class: "save-row" }, h("label", {}, files, studiesTab ? " Save the open PDFs" : " Save the open data files")),
     h("p", { class: "save-row" }, h("span", {}, "Up to"), totalLimit, h("span", {}, "in all, files up to"), fileLimit, h("span", {}, "each")),
     h("p", { class: "note" }, studiesTab
@@ -470,23 +480,19 @@ async function pool(items, n, fn) {
   }));
 }
 
-/* The first `count` results in the order shown, with further pages as needed (200 studies a page). */
+/* The first `count` results in the order shown (all of them, when `count` is the total), 200 at a time, each once;
+   `notes` says why it got fewer, when it did. */
 async function collect(count, progress) {
-  if (count <= results.length) return results.slice(0, count);
-  const src = SOURCES[state.tab], q = query();
-  if (state.tab === "data") {
-    progress(`Getting the first ${fmt(count)} datasets…`);
-    const repos = REPO_NAMES.filter((n) => !q.filters.repos.length || q.filters.repos.includes(n)).length;
-    return (await src.search(q, 1, Math.min(count, Math.ceil(count / repos) * 2))).items.slice(0, count);
+  if (count <= results.length) return { rows: results.slice(0, count), notes: [] };
+  const rows = [], notes = [];
+  progress(`Getting the results: 0 of ${fmt(count)}…`);
+  for await (const batch of SOURCES[state.tab].all(query(), notes)) {
+    rows.push(...batch);
+    progress(`Getting the results: ${fmt(Math.min(rows.length, count))} of ${fmt(count)}…`);
+    if (rows.length >= count) break;
   }
-  const rows = [], seen = new Set();
-  for (let p = 1; rows.length < count && p <= 50; p++) {
-    progress(`Getting the results: ${fmt(rows.length)} of ${fmt(count)}…`);
-    const res = await src.search(q, p, 200);
-    for (const r of res.items) if (!seen.has(r.key)) { seen.add(r.key); rows.push(r); }
-    if (!res.more) break;
-  }
-  return rows.slice(0, count);
+  if (!rows.length) throw new Error(notes[0] || "the search gave no results");
+  return { rows: rows.slice(0, count), notes: [...new Set(notes)] };
 }
 
 const repoOf = (url) => (/osf\.io/.test(url) ? "OSF" : /figshare/.test(url) ? "figshare" : /zenodo/.test(url) ? "Zenodo" : /dataverse/.test(url) ? "Harvard Dataverse" : "");
@@ -497,7 +503,7 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
   go.disabled = true;
   try {
     if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
-    const rows = await collect(count, progress);
+    const { rows, notes: gotNotes } = await collect(count, progress);
     const jobs = [], relay = relayAddress();
     const name = (r) => `${((r.authors || "").split(/[;,]/)[0].trim().split(" ").pop() || "study")}_${r.year || "n.d."}_${r.title.slice(0, 70)}`;
     if (withFiles && state.tab === "studies") {
@@ -533,7 +539,7 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     const title = `${state.input} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
     const res = await saveSearch({
       title, header: HEADER, rows: rows.map(rowOf), ris: risOf(rows), jobs, maxFile, maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
-      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats),
+      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes),
       onSignIn: () => new Promise((resolve, reject) => {
         fill($("#save-signin"), h("p", { class: "note warn" }, "Google's sign-in has run out (it lasts an hour). "),
           h("button", { type: "button", class: "btn btn-small btn-primary", onclick: async () => {
@@ -546,6 +552,8 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     const filesNote = withFiles ? ` and ${plural(res.papers + res.dataFiles, "file")} (${(res.bytes / MB).toFixed(1)} MB)` : "";
     const links = () => [link(res.folder, "Open the folder"), " · ", link(res.sheet, "Results"), res.files ? [" · ", link(res.files, "Files")] : null, " · ", link(res.doc, "Search details")];
     fill($("#save-progress"), h("p", {}, h("strong", {}, "Saved: "), `${plural(rows.length, "result")}${filesNote}. `, links(),
+      res.csv ? h("span", { class: "note" }, " The results were too many for Google to turn into a sheet, so they are saved as a CSV file, which Google Sheets and Excel open.") : null,
+      gotNotes.length ? h("span", { class: "note warn" }, ` ${gotNotes.join(" ")}`) : null,
       listedOnly ? h("span", { class: "note" }, ` ${plural(listedOnly, "file")} from OSF or figshare ${listedOnly === 1 ? "is" : "are"} listed with ${listedOnly === 1 ? "its" : "their"} download link in “Files”; a file relay (Settings) copies them too.`) : null,
       notSaved ? h("span", { class: "note" }, ` ${plural(notSaved, "file")} could not be saved; “Files” says why.`) : null));
     fill($("#drive-result"), h("p", {}, "Saved in your Google Drive: ", links()));
@@ -560,7 +568,7 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /* The record of the search, so that it can be reported and repeated. */
-function detailsHtml(nRows, nJobs, stats) {
+function detailsHtml(nRows, nJobs, stats, gotNotes = []) {
   const f = state.filters, src = SOURCES[state.tab];
   const when = new Date();
   const filters = [
@@ -610,7 +618,8 @@ function detailsHtml(nRows, nJobs, stats) {
 <h2>Filters</h2><p>${filters.length ? filters.map(esc).join("<br>") : "None."}</p>
 <h2>Queries sent</h2>${queries}
 <h2>What was saved</h2>
-<p>${fmt(total)} results found; the first ${fmt(nRows)} saved in the sheet “Results” and in the reference file “Results.ris”, in the order shown (${esc((src.sorts.find(([v]) => v === state.sort) || ["", "Best match"])[1])}), with duplicates removed.</p>
+<p>${fmt(total)} results found${state.tab === "data" ? " (a dataset kept in two repositories counts twice)" : extra.parts > 1 ? " (a study found by two of the searches counts twice)" : ""}; ${fmt(nRows)} saved in “Results” and in the reference file “Results.ris”, in the order shown (${esc((src.sorts.find(([v]) => v === state.sort) || ["", "Best match"])[1])}), each once.</p>
+${gotNotes.length ? `<p>${gotNotes.map(esc).join(" ")}</p>` : ""}
 <p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / MB).toFixed(1)} MB), of ${fmt(nJobs)} found; the sheet “Files” lists every one.${listedOnly ? ` ${fmt(listedOnly)} are in repositories that do not let browsers download files (OSF, figshare): the sheet has their download links.` : ""}${relayAddress() ? ` Files from OSF and figshare were fetched through the file relay ${esc(relayAddress())}.` : ""}</p>
 ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
 <p>Repeat the search: ${esc(location.href)}</p>

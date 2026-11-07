@@ -11,7 +11,7 @@ for systematic reviews, meta-analyses, literature reviews and secondary data ana
   each keyword (read from the 200 studies that match it best) and Wikidata synonyms; searches every term in 39 more
   languages, against language bias; covers preprints, theses, datasets and OSF preregistrations, against publication
   bias; copies the search as a Boolean string for Scopus, Web of Science or PsycINFO, or opens it in PubMed, Google
-  Scholar or BASE; saves up to 2,000 records (10,000 with a free OpenAlex key) with abstracts and without duplicates,
+  Scholar or BASE; saves every record a search finds, with abstracts and without duplicates,
   as a Google Sheet and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote; collects the open PDFs and
   data files; and records the sources, date, terms, filters, exact queries and counts for the PRISMA flow diagram
   and the search appendix (PRISMA 2020 items 6 and 7).
@@ -69,14 +69,17 @@ limited to the files the app creates (`drive.file`).
    Semantic Scholar (by DOI) for open versions of the papers, such as arXiv preprints, and saves the PDFs the browser
    may download. For datasets it lists the files of Zenodo, Harvard Dataverse, OSF and figshare records (also those
    found through DataCite or OpenAIRE) and saves the Zenodo and Dataverse ones; OSF and figshare do not let browsers
-   download files, so theirs are listed with their download links. You choose how many results (up to 2,000, or
-   10,000 with an OpenAlex key) and the size limits.
+   download files, so theirs are listed with their download links (or copied through a file relay). You choose how
+   many results, up to all of them, and the size limits. A save of all results pages through every part of the search
+   200 at a time; when OpenAlex's free allowance runs out, it saves what it has and says how far it got.
 
 ### Limits
 
-- OpenAlex gives anonymous users a small shared allowance (about 100 searches a day per network) and slows free
-  searches when it is busy. Each keyword costs one search for its wordings, and a search with many translations up
-  to three. Visitors can add a free OpenAlex key under Settings (ten times the allowance); it stays in their browser.
+- OpenAlex gives anonymous users a small shared allowance (about 100 requests a day per network, each up to 200
+  results) and slows free searches when it is busy. Each keyword costs one request for its wordings, a search with
+  many translations up to three, and saving all results one per 200. Without a key it also pages through only the
+  first 10,000 results of a query. Visitors can add a free OpenAlex key under Settings (ten times the allowance, and
+  cursor paging to the last result); it stays in their browser.
 - Semantic Scholar does not accept API keys sent from web pages, so it is asked anonymously; when it is busy, fewer
   extra PDFs are found.
 - Many publishers do not let browsers download their PDFs. Those stay as links in the sheet.
@@ -119,7 +122,7 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
 (Google sign-in and the folder structure), `main.js` (the page) and `util.js`. Module imports carry a version
-(`?v=26`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=27`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 
