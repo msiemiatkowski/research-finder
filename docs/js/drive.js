@@ -10,7 +10,7 @@
        Search details     Google Doc: where and how the search was made (keywords, every term, filters, the queries)
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset */
-import { CONFIG } from "../config.js?v=29";
+import { CONFIG } from "../config.js?v=30";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -152,6 +152,7 @@ async function download(url, maxBytes, size = 0, tries = 0) {
       const why = await r.json().then((j) => j.error, () => "");
       if (why) throw new Error(`the file relay answered: ${why}`);
     }
+    if (r.status >= 400 && viaRelay(url)) throw new Error(`the file relay answered HTTP ${r.status}`);
     if (r.status !== 200 && r.status !== 203) throw new Error(`HTTP ${r.status}`);
     if (Number(r.headers.get("Content-Length") || 0) > maxBytes) throw new Error("too large");
     const blob = await r.blob();
@@ -221,7 +222,9 @@ async function copyFiles(jobs, { folderId, folders = {}, maxFile, maxTotal, onPr
         from = url;
         break;
       } catch (e) {
-        why = e.message === "too large" ? "larger than the size limit" : /^the file relay/.test(e.message) ? e.message : why;
+        why = e.message === "too large" ? "larger than the size limit" : /^the file relay/.test(e.message) ? e.message
+          : !viaRelay(url) ? why : e.name === "AbortError" ? "the file relay took too long to answer"
+            : "the file relay did not answer (trying again later may work)";
       }
     }
     if (!blob) return fail(job, why);

@@ -141,7 +141,7 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
 (Google sign-in and the folder structure), `main.js` (the page) and `util.js`. Module imports carry a version
-(`?v=29`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=30`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 

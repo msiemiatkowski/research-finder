@@ -58,7 +58,7 @@ export default {
       return storageFile(url, cors, answer);
     }
     if (!isPublic(url)) return answer(403, { error: "only public web addresses" });
-    const got = await pdfFrom(url, { jar: [], fetches: 0 }, 0);
+    const got = await pdfFrom(url, { jar: [], fetches: 0, fetched: new Map() }, 0);
     if (got.response) {
       const headers = new Headers({ ...cors, "Cache-Control": "no-store", "Content-Type": "application/pdf" });
       for (const h of ["content-length", "content-disposition", "last-modified", "etag"]) {
@@ -128,6 +128,7 @@ async function pdfFrom(start, ctx, depth) {
     } finally {
       clearTimeout(timer);
     }
+    ctx.fetched.set(url.href, ctx.jar.length);
     keepCookies(ctx.jar, url, r.headers);
     const next = r.status >= 300 && r.status < 400 && r.headers.get("Location");
     if (next) {
@@ -145,11 +146,12 @@ async function pdfFrom(start, ctx, depth) {
       if (body) return { response: r, body };
       return { status: 415, error: `the link gives ${type.split(";")[0].trim() ? `a ${type.split(";")[0].trim()} file` : "a file"}, not a PDF` };
     }
-    const page = r.body ? await readText(r.body, 1 << 20) : "";
+    const page = r.body ? await readText(r.body, 1 << 19) : "";
     const refused = refusal(r, page);
     if (refused) return refused;
     if (depth >= 2) return { status: 502, error: "the link leads to web pages, not to the PDF" };
-    const links = pdfLinksIn(page, url);
+    // links already followed are not followed again, unless the site has set cookies since (a cookie check)
+    const links = pdfLinksIn(page, url).filter((l) => !ctx.fetched.has(l.href) || ctx.fetched.get(l.href) < ctx.jar.length);
     const file = viewerFile(url);
     if (file && !links.some((l) => l.href === file.href)) links.unshift(file);
     if (!links.length && ROBOT_PAGE.test(page.slice(0, 30000))) return { status: 403, error: ROBOTS };
@@ -278,7 +280,7 @@ function pdfLinksIn(page, base) {
     } catch { /* kept as it is */ }
     if (/\.pdf\b|\/download\b|\bpdf\b/i.test(src)) out.push(src);
   }
-  const seen = new Set([base.href]);
+  const seen = new Set();          // the page itself may be listed: pdfFrom skips it unless cookies were set since
   const links = [];
   for (const href of out) {
     let u;
