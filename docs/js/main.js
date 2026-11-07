@@ -1,10 +1,10 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=27";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=27";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=27";
+import { CONFIG } from "../config.js?v=28";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=28";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=28";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=27";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=27";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=28";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange } from "./drive.js?v=28";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
@@ -444,6 +444,7 @@ function openSave() {
     [500 * MB, 2e9, 5e9, 15e9].map((b) => h("option", { value: b, selected: b === 2e9 }, sizeName(b))));
   const fileLimit = h("select", { id: "save-file", "aria-label": "Size limit for one file" },
     [50 * MB, 250 * MB, 1e9, 2e9].map((b) => h("option", { value: b, selected: b === 250 * MB }, sizeName(b))));
+  const pdfNote = h("p", { class: "note" }, pdfNoteText());
   fill($("#save-body"),
     h("p", {}, "Research Finder makes a folder for this search in your Google Drive, inside “Research Finder”:"),
     h("ul", { class: "tree" },
@@ -457,9 +458,7 @@ function openSave() {
     sizeNote,
     h("p", { class: "save-row" }, h("label", {}, files, studiesTab ? " Save the open PDFs" : " Save the open data files")),
     h("p", { class: "save-row" }, h("span", {}, "Up to"), totalLimit, h("span", {}, "in all, files up to"), fileLimit, h("span", {}, "each")),
-    h("p", { class: "note" }, studiesTab
-      ? `Many publishers do not let browsers download their PDFs; those stay as links in the sheets.${relayAddress() ? " OSF preprints come through your file relay." : ""}`
-      : relayAddress()
+    studiesTab ? pdfNote : h("p", { class: "note" }, relayAddress()
         ? "Zenodo and Harvard Dataverse files are copied into your Drive, and OSF and figshare files through your file relay. For other repositories the sheet links to the dataset's page."
         : ["Zenodo and Harvard Dataverse files are copied into your Drive. OSF and figshare do not let browsers download files, so theirs are listed with their download links in “Files” (",
           h("button", { type: "button", class: "link-btn", onclick: () => { d.close(); openSettings(); } }, "connect a file relay"),
@@ -471,6 +470,26 @@ function openSave() {
     h("div", { id: "save-signin", class: "save-progress" }),
     h("div", { id: "save-progress", class: "save-progress", role: "status", "aria-live": "polite" }));
   if (!d.open) d.showModal();
+  // whether the relay fetches publishers' PDFs too (its version 2 does): asked again each time, as its code may change
+  if (studiesTab && relayAddress()) {
+    checkRelay(relayAddress()).then((r) => {
+      if (!r.ok) return;
+      local.set("relayPdf", r.pdf ? "1" : "");
+      fill(pdfNote, pdfNoteText());
+    });
+  }
+}
+
+/* What the save dialog says about PDFs, by whether a file relay is connected and fetches publishers' PDFs. */
+function pdfNoteText() {
+  const relay = relayAddress();
+  if (relay && local.get("relayPdf", "")) {
+    return "PDFs that publishers do not let browsers download are fetched through your file relay. A few publishers let only browsers in; their PDFs stay as links in “Files”.";
+  }
+  const settings = (label) => h("button", { type: "button", class: "link-btn", onclick: () => { $("#save").close(); openSettings(); } }, label);
+  return relay
+    ? ["Many publishers do not let browsers download their PDFs; those stay as links in “Files”. OSF preprints come through your file relay; with its current code (", settings("Settings"), ") it fetches publishers' PDFs too."]
+    : ["Many publishers do not let browsers download their PDFs; those stay as links in “Files” (", settings("connect a file relay"), " to fetch many of them)."];
 }
 
 async function pool(items, n, fn) {
@@ -505,6 +524,9 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
     const { rows, notes: gotNotes } = await collect(count, progress);
     const jobs = [], relay = relayAddress();
+    // a relay that fetches publishers' PDFs too (version 2) is asked for every PDF the browser cannot get itself
+    const pdfRelay = relay && withFiles && state.tab === "studies" && (await checkRelay(relay)).pdf;
+    if (relay && withFiles && state.tab === "studies") local.set("relayPdf", pdfRelay ? "1" : "");
     const name = (r) => `${((r.authors || "").split(/[;,]/)[0].trim().split(" ").pop() || "study")}_${r.year || "n.d."}_${r.title.slice(0, 70)}`;
     if (withFiles && state.tab === "studies") {
       progress("Looking for open PDFs…");
@@ -519,7 +541,9 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
       });
       await pool(jobs, 4, async (j) => {
         j.urls = await pdfLinks(j.urls);
-        if (relay && j.urls.some(needsRelay)) { j.source = j.urls[0]; j.urls = j.urls.map((u) => (needsRelay(u) ? relayed(u) : u)); }
+        j.source = j.urls[0];
+        if (pdfRelay) j.urls = [...j.urls.filter((u) => !needsRelay(u)), ...j.urls.map(relayed)];
+        else if (relay) j.urls = j.urls.map((u) => (needsRelay(u) ? relayed(u) : u));
       });
     }
     if (withFiles && state.tab === "data") {
@@ -549,7 +573,7 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     });
     const listedOnly = res.failed.filter((j) => j.copy === false).length;
     const notSaved = res.failed.length - listedOnly;
-    const filesNote = withFiles ? ` and ${plural(res.papers + res.dataFiles, "file")} (${(res.bytes / MB).toFixed(1)} MB)` : "";
+    const filesNote = withFiles ? ` and ${plural(res.papers + res.dataFiles, "file")} (${(res.bytes / MB).toFixed(1)} MB${res.relayed ? `; ${fmt(res.relayed)} through your file relay` : ""})` : "";
     const links = () => [link(res.folder, "Open the folder"), " · ", link(res.sheet, "Results"), res.files ? [" · ", link(res.files, "Files")] : null, " · ", link(res.doc, "Search details")];
     fill($("#save-progress"), h("p", {}, h("strong", {}, "Saved: "), `${plural(rows.length, "result")}${filesNote}. `, links(),
       res.csv ? h("span", { class: "note" }, " The results were too many for Google to turn into a sheet, so they are saved as a CSV file, which Google Sheets and Excel open.") : null,
@@ -620,7 +644,7 @@ function detailsHtml(nRows, nJobs, stats, gotNotes = []) {
 <h2>What was saved</h2>
 <p>${fmt(total)} results found${state.tab === "data" ? " (a dataset kept in two repositories counts twice)" : extra.parts > 1 ? " (a study found by two of the searches counts twice)" : ""}; ${fmt(nRows)} saved in “Results” and in the reference file “Results.ris”, in the order shown (${esc((src.sorts.find(([v]) => v === state.sort) || ["", "Best match"])[1])}), each once.</p>
 ${gotNotes.length ? `<p>${gotNotes.map(esc).join(" ")}</p>` : ""}
-<p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / MB).toFixed(1)} MB), of ${fmt(nJobs)} found; the sheet “Files” lists every one.${listedOnly ? ` ${fmt(listedOnly)} are in repositories that do not let browsers download files (OSF, figshare): the sheet has their download links.` : ""}${relayAddress() ? ` Files from OSF and figshare were fetched through the file relay ${esc(relayAddress())}.` : ""}</p>
+<p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / MB).toFixed(1)} MB), of ${fmt(nJobs)} found; the sheet “Files” lists every one.${listedOnly ? ` ${fmt(listedOnly)} are in repositories that do not let browsers download files (OSF, figshare): the sheet has their download links.` : ""}${stats.relayed ? ` ${fmt(stats.relayed)} of the files saved came through the file relay ${esc(relayAddress())}, because their sites do not let browsers download them.` : ""}</p>
 ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
 <p>Repeat the search: ${esc(location.href)}</p>
 </body></html>`;
@@ -689,10 +713,13 @@ function openSettings() {
   const check = async () => {
     const address = relay.value.trim();
     local.set("relay", address);
-    if (!address) { fill(relayStatus, "Not connected: OSF and figshare files are listed with their download links."); return; }
+    if (!address) { fill(relayStatus, "Not connected: files that sites do not let browsers download are listed with their links."); return; }
     fill(relayStatus, spinner(), " Checking the relay…");
     const r = await checkRelay(address);
-    fill(relayStatus, r.ok ? `Connected: files from ${r.hosts.join(" and ")} are copied into your Drive through it.` : `This relay does not work: ${r.why}.`);
+    if (r.ok) local.set("relayPdf", r.pdf ? "1" : "");
+    fill(relayStatus, !r.ok ? `This relay does not work: ${r.why}.`
+      : r.pdf ? "Connected: OSF and figshare files, and the open-access PDFs publishers do not let browsers download, are copied into your Drive through it."
+        : "Connected: OSF and figshare files are copied into your Drive through it. This relay runs older code: replace it with the current code (below) and deploy it again, and it fetches publishers' PDFs too.");
   };
   const drive = !driveConfigured()
     ? h("p", { class: "note" }, "Saving to Google Drive is not set up on this copy of the site.")
@@ -708,8 +735,8 @@ function openSettings() {
       h("button", { type: "button", class: "btn btn-small", onclick: () => { LANGS.forEach((l) => setLang(l, false)); openSettings(); } }, "English only")),
     langs,
     h("h3", {}, "Google Drive"), drive,
-    h("h3", {}, h("label", { for: "set-relay" }, "OSF and figshare files (optional)")),
-    h("p", { class: "note" }, "OSF and figshare do not let web pages download their files, so Research Finder lists them with their download links. A file relay copies them into your Drive too: a small free program on a Cloudflare account that fetches each file and passes it straight on, keeping nothing. You decide whether to connect one; its address is kept only in this browser."),
+    h("h3", {}, h("label", { for: "set-relay" }, "File relay (optional)")),
+    h("p", { class: "note" }, "OSF and figshare do not let web pages download their files, and neither do many publishers for their open-access PDFs, so Research Finder lists those with their links. A file relay copies them into your Drive too: a small free program on a Cloudflare account that fetches each file and passes it straight on, keeping nothing. You decide whether to connect one; its address is kept only in this browser."),
     h("div", { class: "relay-row" }, relay, h("button", { type: "button", class: "btn btn-small", onclick: check }, "Check"),
       CONFIG.fileRelay ? h("button", { type: "button", class: "btn btn-small", onclick: () => { relay.value = CONFIG.fileRelay; check(); } }, "Use this site's relay") : null),
     relayStatus,
@@ -720,7 +747,7 @@ function openSettings() {
         h("li", {}, "Choose Edit code, replace all the code with the relay's (", h("button", { type: "button", class: "link-btn", onclick: copyRelayCode }, "copy it"),
           " or ", link("relay/worker.js", "read it"), "), and Deploy."),
         h("li", {}, "Copy the Worker's address, which ends in .workers.dev, paste it above and choose Check.")),
-      h("p", { class: "note" }, "The relay answers only this site and fetches only from OSF and figshare. Cloudflare's free plan allows 100,000 files a day and is not billed.")),
+      h("p", { class: "note" }, "The relay answers only this site. From OSF and figshare it fetches files; from other sites, only PDFs, so it cannot be used to read web pages. It does not try to get past the checks some publishers use to let only browsers in. Cloudflare's free plan allows 100,000 files a day and is not billed.")),
     h("h3", {}, h("label", { for: "set-key" }, "OpenAlex key (optional)")),
     h("p", { class: "note" }, "Without a key, OpenAlex shares a free allowance of about 100 searches a day among everyone on your network, and limits free searches when it is busy. Each keyword takes one search to read how studies word it, and a search with many translations is split into up to 3 OpenAlex searches. A free personal key (",
       link("https://openalex.org/settings/api", "get one"), ") allows ten times more, up to 8 searches for one, and is not slowed down. It is kept only in this browser."), key,

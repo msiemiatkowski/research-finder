@@ -10,7 +10,7 @@
        Search details     Google Doc: where and how the search was made (keywords, every term, filters, the queries)
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset */
-import { CONFIG } from "../config.js?v=27";
+import { CONFIG } from "../config.js?v=28";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -122,13 +122,22 @@ async function upload(meta, blob) {
   return r.json();
 }
 
-/* A file the browser may download, within maxBytes; at least a minute, more for large files (100 kB/s). */
-async function download(url, maxBytes, size = 0) {
+const viaRelay = (url) => /\/\?url=/.test(url);
+
+/* A file the browser may download, within maxBytes; at least a minute, more for large files (100 kB/s). A site that
+   asks to wait (HTTP 429) is asked twice more, after the time it gives (at most 30 seconds). */
+async function download(url, maxBytes, size = 0, tries = 0) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), size ? Math.max(60000, size / 100) : 600000);
   try {
     const r = await fetch(url, { signal: ctrl.signal });
-    if (r.status >= 400 && /json/.test(r.headers.get("Content-Type") || "") && /\/\?url=/.test(url)) {
+    if (r.status === 429 && tries < 2) {
+      const wait = Math.min(30, Number(r.headers.get("Retry-After")) || 5 * (tries + 1));
+      clearTimeout(timer);
+      await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+      return download(url, maxBytes, size, tries + 1);
+    }
+    if (r.status >= 400 && /json/.test(r.headers.get("Content-Type") || "") && viaRelay(url)) {
       const why = await r.json().then((j) => j.error, () => "");
       if (why) throw new Error(`the file relay answered: ${why}`);
     }
@@ -158,7 +167,7 @@ async function pool(items, n, fn) {
 
 /* jobs: [{ row, kind: "paper" | "data", urls, source, name, title, dataset, size, repo, copy }], every file found
    (copy: false when its repository does not let browsers download it and no file relay is connected: listed only;
-   source: the file's own address, when urls lead through the relay); rows: the CSV's data rows, one per result (the
+   urls: the addresses to try in turn, some of them through the file relay; source: the file's own address); rows: the CSV's data rows, one per result (the
    "Saved in Drive" column is added here); ris: the same results as a RIS file, for reference managers and screening
    tools. onSignIn: called when the sign-in runs out; resolves once connected again. */
 export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
@@ -169,14 +178,14 @@ export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, 
     const sub = {};
     const within = (key, name, parent) => (sub[key] = sub[key] || makeFolder(name, parent).then((f) => f.id));
     const saved = rows.map(() => []);
-    let bytes = 0, papers = 0, dataFiles = 0, done = 0;
+    let bytes = 0, papers = 0, dataFiles = 0, relayed = 0, done = 0;
     const failed = [];
     const fail = (job, why) => { job.why = why; failed.push(job); };
     const save = async (job) => {
       if (job.copy === false) return fail(job, `${job.repo || "The repository"} does not let browsers download files: use the link, or connect a file relay (Settings)`);
       if (job.size > maxFile) return fail(job, "larger than the size limit");
       if (bytes + (job.size || 0) > maxTotal) return fail(job, "the total size limit was reached");
-      let blob = null, why = "the site does not let browsers download it";
+      let blob = null, why = "the site does not let browsers download it", from = "";
       for (const url of job.urls) {
         try {
           const b = await download(url, Math.min(maxFile, maxTotal - bytes), job.size);
@@ -185,6 +194,7 @@ export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, 
             if (String.fromCharCode(...head) !== "%PDF-") { why = "the link gave a web page, not the PDF"; continue; }
           }
           blob = b;
+          from = url;
           break;
         } catch (e) {
           why = e.message === "too large" ? "larger than the size limit" : /^the file relay/.test(e.message) ? e.message : why;
@@ -201,6 +211,7 @@ export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, 
         job.link = file.webViewLink;
         bytes += blob.size;
         if (job.kind === "paper") papers++; else dataFiles++;
+        if (viaRelay(from)) relayed++;
       } catch (e) {
         fail(job, e.message);
       }
@@ -231,11 +242,11 @@ export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, 
         ...jobs.map((j) => [j.row + 1, j.title, j.name, j.size ? (j.size / 1e6).toFixed(2) : "", j.repo || "", j.source || j.urls[0] || "", j.link || "", j.link ? "" : j.why || ""])]);
     }
     onProgress("Writing the search details…");
-    const html = typeof detailsHtml === "function" ? detailsHtml({ papers, dataFiles, bytes, failed }) : detailsHtml;
+    const html = typeof detailsHtml === "function" ? detailsHtml({ papers, dataFiles, bytes, failed, relayed }) : detailsHtml;
     const doc = await upload({ name: "Search details", mimeType: "application/vnd.google-apps.document", parents: [folder.id] },
       new Blob([html], { type: "text/html" }));
     return { folder: folder.webViewLink, sheet: sheet.webViewLink, files: files && files.webViewLink, doc: doc.webViewLink,
-      papers, dataFiles, bytes, failed, csv };
+      papers, dataFiles, bytes, failed, relayed, csv };
   } finally {
     signIn = null;
   }

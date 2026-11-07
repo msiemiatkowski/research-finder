@@ -3,8 +3,8 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=27";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=27";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=28";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=28";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
@@ -527,18 +527,21 @@ function figshareId(r) {
 }
 
 /* ------------------------------------------------------------------ the file relay */
-/* OSF and figshare do not let web pages download their files. A file relay (docs/relay/worker.js, a small Cloudflare
-   Worker on the visitor's own free account, or one they were given) fetches them instead. Each visitor decides whether
-   to connect one, under Settings; its address is kept in their browser. */
+/* OSF, figshare and many publishers do not let web pages download their files. A file relay (docs/relay/worker.js, a
+   small Cloudflare Worker on the visitor's own free account, or one they were given) fetches them instead: OSF and
+   figshare files, and (version 2 on, `pdf: true`) open-access PDFs from other sites. Each visitor decides whether to
+   connect one, under Settings; its address is kept in their browser. */
 export const relayAddress = () => String(local.get("relay", "") || "").trim().replace(/\/+$/, "");
 export const needsRelay = (url) => /^https:\/\/((www\.)?osf\.io\/(download\/[a-z0-9]{5,}(_v\d+)?|[a-z0-9]{5,}(_v\d+)?\/download)\/?$|files(\.[a-z0-9-]+)?\.osf\.io\/v1\/resources\/|ndownloader\.figshare\.com\/files\/\d|figshare\.com\/ndownloader\/files\/\d)/i.test(url || "");
 export const relayed = (url) => `${relayAddress()}/?url=${encodeURIComponent(url)}`;
 
-/* Whether an address answers as a Research Finder file relay: { ok, hosts } or { ok: false, why }. */
+/* Whether an address answers as a Research Finder file relay: { ok, hosts, pdf } (pdf: it also fetches publishers'
+   PDFs) or { ok: false, why }. */
 export async function checkRelay(address) {
   try {
     const j = await getJSON(`${String(address).trim().replace(/\/+$/, "")}/`, { timeout: 15000, cacheable: false });
-    return j && j.service === "research-finder-relay" ? { ok: true, hosts: j.hosts || [] } : { ok: false, why: "it answers, but it is not a Research Finder relay" };
+    return j && j.service === "research-finder-relay" ? { ok: true, hosts: j.hosts || [], pdf: j.pdf === true }
+      : { ok: false, why: "it answers, but it is not a Research Finder relay" };
   } catch (e) {
     return { ok: false, why: e.status === 403 ? "it does not serve this site: this address must be in the relay's list of sites (ORIGINS)" : e.message };
   }

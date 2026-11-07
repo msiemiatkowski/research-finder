@@ -67,7 +67,7 @@ limited to the files the app creates (`drive.file`).
 5. **Saving.** The results go into a Google Sheet and a RIS file, with their full abstracts, every file found into a
    second sheet. For studies, the app also asks
    Semantic Scholar (by DOI) for open versions of the papers, such as arXiv preprints, and saves the PDFs the browser
-   may download. For datasets it lists the files of Zenodo, Harvard Dataverse, OSF and figshare records (also those
+   may download (and, through a file relay, many of those it may not). For datasets it lists the files of Zenodo, Harvard Dataverse, OSF and figshare records (also those
    found through DataCite or OpenAIRE) and saves the Zenodo and Dataverse ones; OSF and figshare do not let browsers
    download files, so theirs are listed with their download links (or copied through a file relay). You choose how
    many results, up to all of them, and the size limits. A save of all results pages through every part of the search
@@ -82,19 +82,30 @@ limited to the files the app creates (`drive.file`).
   cursor paging to the last result); it stays in their browser.
 - Semantic Scholar does not accept API keys sent from web pages, so it is asked anonymously; when it is busy, fewer
   extra PDFs are found.
-- Many publishers do not let browsers download their PDFs. Those stay as links in the sheet.
+- Many publishers do not let browsers download their PDFs. Those stay as links in the "Files" sheet, unless a file
+  relay fetches them (below); publishers that let only browsers in keep them as links even then.
 - Names in other languages come from Wikidata and from machine translation; the back-translation check catches many
   but not all poor translations. Check them before relying on them, for example in a systematic review.
 - OSF and figshare files cannot be copied into Drive by a browser alone; the "Files" sheet has their download links,
   or a file relay copies them (below).
 
-## File relay for OSF and figshare (optional)
+## File relay (optional)
 
-OSF and figshare do not let web pages download their files. A file relay, [`docs/relay/worker.js`](docs/relay/worker.js),
-is a small Cloudflare Worker that fetches an open file from OSF or figshare (and only from them) and passes it straight
-to the page, keeping nothing; it answers only the sites listed in its `ORIGINS`. Each visitor decides whether to use
-one: under Settings, "OSF and figshare files", they paste a relay's address and choose Check. The address stays in their
-browser. With a relay connected, OSF and figshare files (and OSF preprint PDFs) are copied into Drive like the others.
+OSF, figshare and many publishers do not let web pages download their files. A file relay,
+[`docs/relay/worker.js`](docs/relay/worker.js), is a small Cloudflare Worker that fetches such a file and passes it
+straight to the page, keeping nothing; it answers only the sites listed in its `ORIGINS`. It fetches:
+
+- OSF and figshare files, from their download addresses, following them only to the storage those sites use;
+- open-access PDFs from any other public site, and only PDFs, so it cannot be used to read web pages. When a link
+  leads to an article's page instead, it follows the PDF link the page gives (`citation_pdf_url`, the tag publishers
+  add for Google Scholar; also Open Journal Systems' download links and DSpace 7 file addresses), at most two pages deep.
+  It identifies itself in its user agent and does not try to get past the checks some publishers use to let only
+  browsers in; those PDFs stay as links.
+
+Research Finder tries every PDF in the browser first and asks the relay only for those the browser may not download.
+Each visitor decides whether to use a relay: under Settings, "File relay", they paste its address and choose Check.
+The address stays in their browser. A relay running the first version of this code fetches only OSF and figshare
+files (Check says so); replacing its code with the current file and deploying it again adds the PDFs.
 
 To set one up (free, about five minutes): create a Cloudflare account; in the dashboard open Workers & Pages, Create
 application, start from "Hello World" and deploy it; choose Edit code, replace the code with `docs/relay/worker.js` and
@@ -122,7 +133,7 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
 (Google sign-in and the folder structure), `main.js` (the page) and `util.js`. Module imports carry a version
-(`?v=27`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=28`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 
