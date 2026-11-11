@@ -3,10 +3,11 @@
    search terms, and the page says wherever it shows one that it is an automatic translation, not a professional one:
    enough to see what a study is about, not to quote it or to decide on it.
    A title's translation is checked by translating it back. For a short title, machine translation sometimes writes a
-   sentence of its own ("The report also highlights…"); a translation whose back-translation shares almost nothing with
-   the original is tried once more, written as a sentence or not, and if it fails again it is not shown. */
-import { local, norm } from "./util.js?v=33";
-import { LANG_NAMES, MINT, mint } from "./terms.js?v=33";
+   sentence of its own ("The report also highlights…"); a translation whose back-translation shares too little with
+   the original, or that opens or repeats itself the way those sentences do, is tried again (as a sentence or not, then
+   after the word for "title"), and if it still fails it is not shown. */
+import { local, norm } from "./util.js?v=34";
+import { LANG_NAMES, MINT, mint } from "./terms.js?v=34";
 
 const MIN_OVERLAP = 0.2;       // share of the original's letter groups its back-translation must have
 const SUSPECT_OVERLAP = 0.4;   // the same, for a translation that looks made up
@@ -180,18 +181,34 @@ function suspect(original, text) {
   return (t.most >= 3 && t.most > o.most) || (t.twice >= 2 && t.twice > o.twice);
 }
 
-/* An all-capitals title in ordinary capitals, and with a full stop when it is to be read as a sentence. */
-function prepare(title, lang, sentence) {
+/* The word for "title" in the commonest languages: "Titel: …" makes machine translation read a short title as one
+   ("Title: Communication of science in crisis") where it would otherwise make up a sentence. */
+const TITLE_WORD = { de: "Titel", nl: "Titel", da: "Titel", sv: "Titel", no: "Tittel", fi: "Otsikko", et: "Pealkiri",
+  pt: "Título", es: "Título", ca: "Títol", fr: "Titre", it: "Titolo", ro: "Titlu", pl: "Tytuł", cs: "Název", sk: "Názov",
+  sl: "Naslov", hr: "Naslov", sr: "Наслов", bg: "Заглавие", mk: "Наслов", ru: "Название", uk: "Назва", be: "Назва",
+  lt: "Pavadinimas", lv: "Nosaukums", hu: "Cím", el: "Τίτλος", tr: "Başlık", ar: "العنوان", fa: "عنوان", he: "כותרת",
+  hi: "शीर्षक", zh: "论文题目", ja: "論文のタイトル", ko: "논문 제목", id: "Judul", ms: "Tajuk", vi: "Tiêu đề", th: "ชื่อเรื่อง" };
+const TITLED = /^\s*(the\s+)?((paper|article|study)\s+)?(title|heading|headline)(\s+of\s+(the|this|a)\s+(paper|article|study|work|thesis))?(\s+is)?\s*[:：.\-–—]\s*/i;
+
+/* An all-capitals title in ordinary capitals; then, by mode, with a full stop ("sentence"), as it is ("plain"), or
+   after the word for "title" ("titled"). */
+function prepare(title, lang, mode) {
   let t = title.replace(/\s+/g, " ").trim();
   const upper = (t.match(/\p{Lu}/gu) || []).length, lower = (t.match(/\p{Ll}/gu) || []).length;
   if (upper > 12 && upper > 2.3 * lower) t = t.toLowerCase().replace(/^\P{L}*\p{L}/u, (m) => m.toUpperCase());
-  if (sentence && !ENDS.test(t)) t += lang === "zh" || lang === "ja" ? "。" : ".";
+  if (mode === "titled") return `${TITLE_WORD[lang]}${lang === "zh" || lang === "ja" ? "：" : ": "}${t}`;
+  if (mode === "sentence" && !ENDS.test(t)) t += lang === "zh" || lang === "ja" ? "。" : ".";
   return t;
 }
 
-/* No full stop the title did not have, and nothing to show when the title already says it in English. */
+/* No sentence and no full stop the title did not have ("LingVaria. What is it?" for the journal LingVaria), and
+   nothing to show when the title already says it in English. */
 function finish(title, text) {
   text = String(text || "").replace(/\s+/g, " ").trim().replace(/\s+([?!:;,.])/g, "$1").replace(/\s+(['’]s)\b/g, "$1");
+  if (!/[.!?。！？]\s/.test(title)) {
+    const first = text.match(/^(.*?\p{L}{4,}[.!?])\s+\p{Lu}/u);
+    if (first) text = first[1];
+  }
   if (!ENDS.test(title.trim())) text = text.replace(/(?<!\.)[.。]$/, "");
   const own = new Set(norm(title).split(" "));
   const words = norm(text).split(" ").filter((w) => w.length >= 3);
@@ -211,33 +228,37 @@ export function knownTitle(lang, title) {
   return v ? { text: v[0], ok: Boolean(v[1]) } : undefined;
 }
 
-async function attempt(lang, titles, sentence) {
-  const out = await mint(titles.map((t) => prepare(t, lang, sentence)), lang, "en");
+async function attempt(lang, titles, mode) {
+  let out = await mint(titles.map((t) => prepare(t, lang, mode)), lang, "en");
   if (!out) return null;
+  // a "titled" translation counts only when it kept the word ("Title: …"), which then goes
+  if (mode === "titled") out = out.map((o) => (TITLED.test(o || "") ? o.replace(TITLED, "") : ""));
   const back = await mint(out.map((o) => o || "-"), "en", lang);
   return out.map((text, i) => ({ text, score: back ? overlap(titles[i], back[i]) : 1, suspect: suspect(titles[i], text || "") }));
 }
 const passes = (r) => Boolean(r.text) && r.score >= (r.suspect ? SUSPECT_OVERLAP : MIN_OVERLAP);
 
 /* One request for up to CHUNK titles in one language, another to translate them back; a title that fails the check
-   is tried once more the other way (Chinese titles do better without a full stop, the others with one). A title the
-   translation only repeats (often an English title filed under another language) has nothing to show. */
+   is tried again another way: Chinese titles do better as they are, the others with a full stop, and a title that
+   still fails goes after the word for "title". A title the translation only repeats (often an English title filed
+   under another language) has nothing to show. */
 async function translateChunk(lang, titles) {
-  const sentence = lang !== "zh";
-  const first = await attempt(lang, titles, sentence);
-  if (!first) return null;
+  const modes = lang === "zh" ? ["plain", "sentence", "titled"] : ["sentence", "plain", "titled"];
+  const best = await attempt(lang, titles, modes[0]);
+  if (!best) return null;
   const same = (r, i) => Boolean(r.text) && !finish(titles[i], r.text);
-  const again = titles.map((t, i) => i).filter((i) => !same(first[i], i) && !passes(first[i]));
-  if (again.length) {
-    const second = await attempt(lang, again.map((i) => titles[i]), !sentence);
-    if (second) {
-      again.forEach((i, k) => {
-        const r = second[k];
-        if (same(r, i) || passes(r) || (r.text && !first[i].text) || (r.score > first[i].score && r.suspect <= first[i].suspect)) first[i] = r;
-      });
-    }
+  for (const mode of modes.slice(1)) {
+    if (mode === "titled" && !TITLE_WORD[lang]) break;
+    const again = titles.map((t, i) => i).filter((i) => !same(best[i], i) && !passes(best[i]));
+    if (!again.length) break;
+    const next = await attempt(lang, again.map((i) => titles[i]), mode);
+    if (!next) continue;
+    again.forEach((i, k) => {
+      const r = next[k];
+      if (same(r, i) || passes(r) || (r.text && !best[i].text) || (r.score > best[i].score && r.suspect <= best[i].suspect)) best[i] = r;
+    });
   }
-  return first.map((r, i) => (same(r, i) ? ["", 1] : passes(r) ? [finish(titles[i], r.text), 1] : ["", 0]));
+  return best.map((r, i) => (same(r, i) ? ["", 1] : passes(r) ? [finish(titles[i], r.text), 1] : ["", 0]));
 }
 
 const waiting = new Map();     // "pl|title" -> {lang, title, done: [callbacks]}
@@ -282,6 +303,48 @@ export function translateTitle(lang, title) {
     clearTimeout(flushTimer);
     flushTimer = setTimeout(() => { running = running.then(flush, flush); }, 60);
   });
+}
+
+/* ------------------------------------------------------------------ for sheets and files */
+const langOf = new WeakMap();
+/* The language to translate a record's title from ("" when none), worked out once per record. */
+export function titleLanguage(r) {
+  if (!langOf.has(r)) langOf.set(r, languageOf(r.title, r.lang));
+  return langOf.get(r);
+}
+
+/* The English of a record's title, when it is in another language and its translation passed the check. */
+export function englishTitle(r) {
+  const from = titleLanguage(r);
+  const known = from ? knownTitle(from, r.title) : null;
+  return known && known.ok ? known.text : "";
+}
+
+export const SAVE_TRANSLATIONS = 2000;      // titles one save or export translates at most
+/* Translates the titles in other languages of many records (for a save or an export) that are not translated yet, at
+   most `max`, and says what became of them all: {foreign, shown, failed, same, missing}. */
+export async function englishTitles(records, { max = SAVE_TRANSLATIONS, onProgress = () => {} } = {}) {
+  const todo = new Map();
+  for (const r of records) {
+    const from = titleLanguage(r);
+    if (from && !knownTitle(from, r.title)) todo.set(`${from}|${r.title}`, [from, r.title]);
+  }
+  const now = [...todo.values()].slice(0, max);
+  let done = 0;
+  if (now.length) onProgress(0, now.length);
+  await Promise.all(now.map(([from, title]) => translateTitle(from, title).then(() => onProgress(++done, now.length))));
+  const out = { foreign: 0, shown: 0, failed: 0, same: 0, missing: 0 };
+  for (const r of records) {
+    const from = titleLanguage(r);
+    if (!from) continue;
+    out.foreign++;
+    const known = knownTitle(from, r.title);
+    if (!known) out.missing++;
+    else if (!known.ok) out.failed++;
+    else if (known.text) out.shown++;
+    else out.same++;
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ translating an abstract */

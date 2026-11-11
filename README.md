@@ -39,7 +39,8 @@ Each saved search becomes one folder in the visitor's own Google Drive:
 Research Finder/
   <keywords> — <date and time>/
     Results          Google Sheet: one row per result with its abstract, the same columns for every source,
-                     with links to the files saved for it
+                     with links to the files saved for it, and the English of titles in other languages
+                     (automatic translation)
     Results.ris      the same results for Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview
     Files            Google Sheet: every file found, with its download link, and whether it was saved
                      (and if not, why)
@@ -93,8 +94,12 @@ limited to the files the app creates (`drive.file`).
    Each title's translation is translated back as a check: a translation whose back-translation shares too few
    letter groups with the original (machine translation sometimes writes a sentence of its own for a short title,
    such as "The report also highlights..."), or one that opens or repeats itself the way those made-up sentences do,
-   is tried once more, written as a sentence or not, and otherwise not shown. Titles are sent to MinT by language,
-   16 to a request, and remembered in the browser. Settings can turn this off.
+   is tried again, written as a sentence or not, then after the word for "title" in its language ("Titel: ..."), which
+   stops machine translation from making up a sentence for many short titles; one that still fails is not shown. Titles are sent to MinT by language,
+   16 to a request, and remembered in the browser. A save, and a CSV or RIS export, translates the titles of all its
+   results (up to 2,000 a save) into the column "Title in English (automatic translation)" of "Results" and the CSV,
+   and into a note (N1) in the RIS file that says it is an automatic translation; "Search details" counts them.
+   Settings can turn this off.
 
 ### Limits
 
@@ -165,7 +170,7 @@ the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvar
 (Google sign-in and the folder structure), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=33`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=34`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 

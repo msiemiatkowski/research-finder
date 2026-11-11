@@ -1,11 +1,12 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=33";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=33";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=33";
+import { CONFIG } from "../config.js?v=34";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=34";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=34";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=33";
-import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText } from "./translate.js?v=33";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=33";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=34";
+import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle, englishTitles,
+  SAVE_TRANSLATIONS } from "./translate.js?v=34";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=34";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
@@ -374,7 +375,7 @@ function abstractOf(r) {
 function renderRecord(r) {
   const href = r.doi ? `https://doi.org/${r.doi}` : safeUrl(r.url) || safeUrl(r.pdf);
   const lang = r.lang && r.lang !== "en" ? languageName(r.lang) : "";
-  const from = translationsOn() ? languageOf(r.title, r.lang) : "";
+  const from = translationsOn() ? titleLanguage(r) : "";
   const li = h("li", { class: "result" },
     h("div", { class: "r-top" },
       h("span", { class: `badge kind-${r.kind}` }, KIND_NAMES[r.kind] || "Record"),
@@ -467,17 +468,26 @@ const externalMenu = () => menu("Search elsewhere ▾", [
   ["OpenAlex (English terms)", `https://openalex.org/works?search=${encodeURIComponent(searchString(true, 900))}`],
 ]);
 
-/* One row per result, the same columns for every source. */
-const HEADER = ["No.", "Title", "Abstract", "Authors", "Year", "Type", "Journal or repository", "DOI", "Link", "Open PDF", "Language", "Keywords", "Source", "Citations", "License", "Size"];
-const rowOf = (r, i) => [i + 1, r.title, r.full || r.abstract || "", r.authors, r.year || "", KIND_NAMES[r.kind] || "", r.venue, r.doi ? `https://doi.org/${r.doi}` : "",
-  r.url || r.landing || "", r.pdf, r.lang, (r.keywords || []).join("; "), r.source, r.cited || "", r.license || "", r.size || ""];
+/* One row per result, the same columns for every source; while translations are on, a title in another language has
+   its English next to it. */
+const EN_TITLE = "Title in English (automatic translation)";
+const COLUMNS = ["No.", "Title", "Abstract", "Authors", "Year", "Type", "Journal or repository", "DOI", "Link", "Open PDF", "Language", "Keywords", "Source", "Citations", "License", "Size"];
+const header = (en) => (en ? [COLUMNS[0], COLUMNS[1], EN_TITLE, ...COLUMNS.slice(2)] : COLUMNS);
+function rowOf(r, i, en) {
+  const row = [i + 1, r.title, r.full || r.abstract || "", r.authors, r.year || "", KIND_NAMES[r.kind] || "", r.venue, r.doi ? `https://doi.org/${r.doi}` : "",
+    r.url || r.landing || "", r.pdf, r.lang, (r.keywords || []).join("; "), r.source, r.cited || "", r.license || "", r.size || ""];
+  if (en) row.splice(2, 0, englishTitle(r));
+  return row;
+}
 
 /* The same results as a RIS file, which reference managers (Zotero, EndNote, Mendeley) and screening tools (Rayyan,
    Covidence, ASReview) import. */
 const RIS_TYPES = { article: "JOUR", review: "JOUR", editorial: "JOUR", letter: "JOUR", preprint: "UNPB", book: "BOOK", monograph: "BOOK",
   "book-chapter": "CHAP", dissertation: "THES", dataset: "DATA" };
-function risOf(records) {
+function risOf(records, en = translationsOn()) {
   const tag = (t, v) => (v == null || v === "" ? "" : `${t}  - ${String(v).replace(/\s+/g, " ").trim()}\r\n`);
+  // the English of a title goes into a note that says what it is (Zotero would file a "translated title" unlabelled)
+  const english = (r) => { const t = en ? englishTitle(r) : ""; return t ? `Title in English, an automatic translation (Wikimedia MinT), not a professional one: ${t}` : ""; };
   return records.map((r) => [
     tag("TY", r.kind === "d" ? "DATA" : RIS_TYPES[r.type] || "GEN"),
     tag("TI", r.title),
@@ -491,6 +501,7 @@ function risOf(records) {
     tag("UR", r.doi ? `https://doi.org/${r.doi}` : safeUrl(r.url || r.landing)),
     tag("LA", r.lang === "en" ? "English" : LANG_NAMES[r.lang] || r.lang),
     tag("DB", r.source),
+    tag("N1", english(r)),
     "ER  - \r\n",
   ].join("")).join("\r\n");
 }
@@ -504,12 +515,24 @@ function downloadFile(name, text, type) {
 }
 const fileDate = () => new Date().toISOString().slice(0, 10);
 
-function exportCsv() {
+/* Before an export, the English of the titles in other languages among the results shown (most are translated already). */
+async function englishFirst(records) {
+  if (!translationsOn()) return;
+  const slow = setTimeout(() => toast("Translating the titles in other languages into English…", 10000), 500);
+  try { await englishTitles(records); } finally { clearTimeout(slow); }
+}
+
+async function exportCsv() {
+  await englishFirst(results);
+  const en = translationsOn();
   const cell = (v) => { const s = String(v == null ? "" : v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const csv = [HEADER, ...results.map(rowOf)].map((r) => r.map(cell).join(",")).join("\r\n");
+  const csv = [header(en), ...results.map((r, i) => rowOf(r, i, en))].map((r) => r.map(cell).join(",")).join("\r\n");
   downloadFile(`research-finder-${fileDate()}.csv`, "﻿" + csv, "text/csv;charset=utf-8");
 }
-const exportRis = () => downloadFile(`research-finder-${fileDate()}.ris`, risOf(results), "application/x-research-info-systems");
+async function exportRis() {
+  await englishFirst(results);
+  downloadFile(`research-finder-${fileDate()}.ris`, risOf(results), "application/x-research-info-systems");
+}
 
 /* ------------------------------------------------------------------ saving to Google Drive */
 const MB = 1e6;
@@ -544,7 +567,8 @@ function openSave() {
   fill($("#save-body"),
     h("p", {}, "Research Finder makes a folder for this search in your Google Drive, inside “Research Finder”:"),
     h("ul", { class: "tree" },
-      h("li", {}, h("strong", {}, "Results"), " — a Google Sheet: one row per result with its abstract, the same columns for every source, with links to the files saved"),
+      h("li", {}, h("strong", {}, "Results"), " — a Google Sheet: one row per result with its abstract, the same columns for every source, with links to the files saved",
+        translationsOn() ? ", and an automatic English translation of titles in other languages" : ""),
       h("li", {}, h("strong", {}, "Results.ris"), " — the same results as a reference file, to import into Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview"),
       h("li", {}, h("strong", {}, "Files"), " — a Google Sheet with every file found: its download link, and whether it was saved (and if not, why)"),
       h("li", {}, h("strong", {}, "Search details"), " — a document with your keywords, every term and translation used, the filters and the exact queries, so the search can be repeated"),
@@ -618,6 +642,8 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
   try {
     if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
     const { rows, notes: gotNotes } = await collect(count, progress);
+    const english = translationsOn()
+      ? await englishTitles(rows, { onProgress: (n, of) => progress(`Translating the titles in other languages into English: ${fmt(n)} of ${fmt(of)}…`) }) : null;
     const jobs = [], relay = relayAddress();
     // a relay that fetches publishers' PDFs too (version 2) is asked for every PDF the browser cannot get itself
     const pdfRelay = relay && withFiles && state.tab === "studies" && (await checkRelay(relay)).pdf;
@@ -657,8 +683,9 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     }
     const title = `${state.input} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
     const res = await saveSearch({
-      title, header: HEADER, rows: rows.map(rowOf), ris: risOf(rows), jobs, maxFile, maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
-      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes),
+      title, header: header(Boolean(english)), rows: rows.map((r, i) => rowOf(r, i, Boolean(english))), ris: risOf(rows, Boolean(english)), jobs, maxFile,
+      maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
+      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes, english),
       onSignIn: () => new Promise((resolve, reject) => {
         fill($("#save-signin"), h("p", { class: "note warn" }, "Google's sign-in has run out (it lasts an hour). "),
           h("button", { type: "button", class: "btn btn-small btn-primary", onclick: async () => {
@@ -825,7 +852,7 @@ async function runFill(s, missing, c, studies, maxFile, maxTotal, go, box, signi
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /* The record of the search, so that it can be reported and repeated. */
-function detailsHtml(nRows, nJobs, stats, gotNotes = []) {
+function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null) {
   const f = state.filters, src = SOURCES[state.tab];
   const when = new Date();
   const filters = [
@@ -879,6 +906,8 @@ function detailsHtml(nRows, nJobs, stats, gotNotes = []) {
 ${gotNotes.length ? `<p>${gotNotes.map(esc).join(" ")}</p>` : ""}
 <p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / MB).toFixed(1)} MB), of ${fmt(nJobs)} found; the sheet “Files” lists every one.${listedOnly ? ` ${fmt(listedOnly)} are in repositories that do not let browsers download files (OSF, figshare): the sheet has their download links.` : ""}${stats.relayed ? ` ${fmt(stats.relayed)} of the files saved came through the file relay ${esc(relayAddress())}, because their sites do not let browsers download them.` : ""}</p>
 ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
+${english && english.foreign ? `<h2>Titles in other languages</h2>
+<p>${fmt(english.foreign)} of the results saved have a title in another language. ${fmt(english.shown)} of them have an automatic English translation in the column “${EN_TITLE}” of “Results”, and in a note in “Results.ris”, made by Wikimedia's open machine translation (MinT) and checked by translating it back into the original language${english.failed ? `; ${fmt(english.failed)} did not pass that check and have none` : ""}${english.same ? `; ${fmt(english.same)} needed none, as their title says it in English too` : ""}${english.missing ? `; ${fmt(english.missing)} were not translated, because MinT did not answer or a save translates at most ${fmt(SAVE_TRANSLATIONS)}` : ""}. These are machine translations, not professional ones: use them to see what a study is about, and the original titles to screen and to cite.</p>` : ""}
 <p>Repeat the search: ${esc(location.href)}</p>
 </body></html>`;
 }
@@ -1073,7 +1102,7 @@ function renderAbout() {
     h("h3", {}, "Results in other languages"),
     h("p", {}, "A title in another language is shown with an automatic English translation in [brackets], and “English translation” under its abstract translates the abstract, both by Wikimedia's MinT. Each title's translation is translated back into the original language as a check: one that has almost nothing in common with the original, as machine translation sometimes writes for a short title, is not shown. They are machine translations, not professional ones, for a first look at what a study is about; Settings can turn them off."),
     h("h3", {}, "What is saved"),
-    h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
+    h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source, and an automatic English translation of titles in other languages), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
     h("h3", {}, "Reporting a search"),
     h("p", {}, "The document “Search details” in each saved folder has what a methods section and a search appendix need:"),
     h("ul", {},
