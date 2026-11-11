@@ -150,7 +150,7 @@ translation), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, 
 (Google sign-in and the folder structure), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=31`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=32`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 

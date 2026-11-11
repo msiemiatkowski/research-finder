@@ -10,10 +10,12 @@
   <meta property="og:description" content="A free literature search for systematic reviews, meta-analyses and literature reviews: every wording researchers use for your topic, 40 languages, 270 million studies and five data repositories, saved to your Google Drive with a record of the search.">
   <meta property="og:url" content="https://msiemiatkowski.github.io/research-finder/">
   <meta name="color-scheme" content="light dark">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='13' cy='13' r='8.5' fill='none' stroke='%232f6f6a' stroke-width='3.2'/%3E%3Cpath d='M19.5 19.5 28 28' stroke='%232f6f6a' stroke-width='3.6' stroke-linecap='round'/%3E%3Ccircle cx='13' cy='13' r='2.6' fill='%23c2410c'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=31">
-  <script type="module" src="js/main.js?v=31"></script>
-  <script type="module" src="js/landing.js?v=31"></script>
+  <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css?v=32">
+  <script type="module" src="js/main.js?v=32"></script>
+  <script type="module" src="js/landing.js?v=32"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -49,10 +51,10 @@
 
   <main>
     <section class="hero">
-      <div class="wrap hero-grid">
+      <div class="wrap">
         <div class="hero-main">
           <p class="eyebrow">For systematic reviews, meta-analyses and literature reviews</p>
-          <h1>Find the studies your keywords miss</h1>
+          <h1>Find the studies your keywords <span class="hl">miss</span></h1>
           <p class="lead">Research Finder searches for every wording researchers use for your topic, in 40 languages, in about 270 million studies and five open-data repositories. The records, open PDFs, data files and a full record of the search go into a folder in your own Google Drive.</p>
           <form id="search-form" role="search" autocomplete="off">
             <div class="searchbox">
@@ -77,42 +79,40 @@
         </div>
 
         <aside class="demo" id="demo" aria-labelledby="demo-title">
-          <p class="demo-kicker">A real search, 11 November 2026</p>
-          <h2 id="demo-title"><q>Trust in science</q>, searched three ways</h2>
-          <ol class="demo-steps">
-            <li>
-              <div class="demo-row">
+          <div class="demo-head">
+            <div>
+              <p class="demo-kicker">A real search · 11 November 2026</p>
+              <h2 id="demo-title"><q>Trust in science</q>, searched three ways</h2>
+            </div>
+            <button type="button" class="btn example" data-q="trust in science">Run this search <svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+          </div>
+          <div class="demo-body">
+            <ol class="demo-steps">
+              <li>
                 <h3>The phrase, as you type it</h3>
                 <p class="demo-num"><b>2,383</b><span>studies</span></p>
-              </div>
-              <div class="tchips"><span class="tchip you">trust in science</span></div>
-              <div class="meter" aria-hidden="true"><i class="m-base" style="--w:70.05%"></i></div>
-            </li>
-            <li>
-              <div class="demo-row">
+                <div class="tchips"><span class="tchip you">trust in science</span></div>
+                <div class="meter" aria-hidden="true"><i class="m-base" style="--w:70.05%"></i></div>
+              </li>
+              <li>
                 <h3>With the 6 other wordings researchers use</h3>
-                <p class="demo-num"><em>+746</em><b>3,129</b></p>
-              </div>
-              <div class="tchips"><span class="tchip">trust in scientists</span><span class="tchip">trustworthiness of science</span><span class="tchip">scientific trust</span><span class="tchip more">3 more</span></div>
-              <div class="meter" aria-hidden="true"><i class="m-base" style="--w:70.05%"></i><i class="m-add" style="--w:21.93%"></i></div>
-            </li>
-            <li>
-              <div class="demo-row">
+                <p class="demo-num"><b>3,129</b><em>+746</em></p>
+                <div class="tchips"><span class="tchip">trust in scientists</span><span class="tchip">trustworthiness of science</span><span class="tchip">scientific trust</span><span class="tchip more">3 more</span></div>
+                <div class="meter" aria-hidden="true"><i class="m-base" style="--w:70.05%"></i><i class="m-add" style="--w:21.93%"></i></div>
+              </li>
+              <li>
                 <h3>And in 39 more languages</h3>
-                <p class="demo-num"><em>+273</em><b>3,402</b></p>
-              </div>
-              <div class="tchips"><span class="tchip"><span lang="pt">confiança na ciência</span></span><span class="tchip"><span lang="de">Vertrauen in die Wissenschaft</span></span><span class="tchip"><span lang="pl">zaufanie do nauki</span></span><span class="tchip"><span lang="ja">科学への信頼</span></span><span class="tchip more">106 more</span></div>
-              <div class="meter" aria-hidden="true"><i class="m-base" style="--w:91.98%"></i><i class="m-add m-warm" style="--w:8.02%"></i></div>
-            </li>
-          </ol>
-          <p class="demo-sum"><strong>1,019 studies</strong> that a search for the phrase alone does not find: 3 in every 10.</p>
-          <div class="demo-foot">
-            <button type="button" class="btn example" data-q="trust in science">Run this search <svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>
-            <details class="demo-how">
-              <summary>How this was counted</summary>
-              <p>Studies in OpenAlex with a term in their title or abstract, each study counted once. The wordings come from the 200 studies that match the keyword best. Each translation was checked by translating it back into English; 5 came back with another meaning and were left out. Without a personal OpenAlex key, a search carries 110 of the 175 translations, at least one in every language; a free key carries them all.</p>
-            </details>
+                <p class="demo-num"><b>3,402</b><em>+273</em></p>
+                <div class="tchips"><span class="tchip"><span lang="pt">confiança na ciência</span></span><span class="tchip"><span lang="de">Vertrauen in die Wissenschaft</span></span><span class="tchip"><span lang="pl">zaufanie do nauki</span></span><span class="tchip"><span lang="ja">科学への信頼</span></span><span class="tchip more">106 more</span></div>
+                <div class="meter" aria-hidden="true"><i class="m-base" style="--w:91.98%"></i><i class="m-add" style="--w:8.02%"></i></div>
+              </li>
+            </ol>
+            <p class="demo-sum"><strong>1,019</strong><span>studies that a search for the phrase alone does not find: 3 in every 10.</span></p>
           </div>
+          <details class="demo-how">
+            <summary>How this was counted</summary>
+            <p>Studies in OpenAlex with a term in their title or abstract, each study counted once. The wordings come from the 200 studies that match the keyword best. Each translation was checked by translating it back into English; 5 came back with another meaning and were left out. Without a personal OpenAlex key, a search carries 110 of the 175 translations, at least one in every language; a free key carries them all.</p>
+          </details>
         </aside>
       </div>
     </section>
@@ -126,16 +126,15 @@
     </section>
 
     <div class="landing">
-      <section class="block wrap" id="uses" aria-labelledby="uses-title">
+      <section class="band" id="uses" aria-labelledby="uses-title">
+       <div class="wrap">
         <p class="kicker">What it does for your research</p>
         <h2 class="block-title" id="uses-title">What are you working on?</h2>
-        <div class="tabs-scroll">
-          <div class="task-tabs" role="tablist" aria-label="Kind of research">
-            <button type="button" role="tab" id="tab-review" aria-controls="task-review" aria-selected="true">Systematic review or meta-analysis</button>
-            <button type="button" role="tab" id="tab-lit" aria-controls="task-lit" aria-selected="false" tabindex="-1">Literature review</button>
-            <button type="button" role="tab" id="tab-data" aria-controls="task-data" aria-selected="false" tabindex="-1">Reusing open data</button>
-            <button type="button" role="tab" id="tab-cross" aria-controls="task-cross" aria-selected="false" tabindex="-1">Cross-cultural research</button>
-          </div>
+        <div class="task-tabs" role="tablist" aria-label="Kind of research">
+          <button type="button" role="tab" id="tab-review" aria-controls="task-review" aria-selected="true"><span class="tt-num">01</span><span class="tt-title">Systematic review or meta-analysis</span><span class="tt-sub">From search string to search appendix</span></button>
+          <button type="button" role="tab" id="tab-lit" aria-controls="task-lit" aria-selected="false" tabindex="-1"><span class="tt-num">02</span><span class="tt-title">Literature review</span><span class="tt-sub">The size of a topic and its key papers</span></button>
+          <button type="button" role="tab" id="tab-data" aria-controls="task-data" aria-selected="false" tabindex="-1"><span class="tt-num">03</span><span class="tt-title">Reusing open data</span><span class="tt-sub">Datasets, with their files</span></button>
+          <button type="button" role="tab" id="tab-cross" aria-controls="task-cross" aria-selected="false" tabindex="-1"><span class="tt-num">04</span><span class="tt-title">Cross-cultural research</span><span class="tt-sub">What English-only searches miss</span></button>
         </div>
 
         <div class="task" role="tabpanel" id="task-review" aria-labelledby="tab-review" tabindex="0">
@@ -257,9 +256,11 @@
             <figcaption>Three of the 273 studies that only the translated terms found.</figcaption>
           </figure>
         </div>
+       </div>
       </section>
 
-      <section class="block wrap" id="output" aria-labelledby="output-title">
+      <section class="band band-warm" id="output" aria-labelledby="output-title">
+       <div class="wrap">
         <p class="kicker">What you get</p>
         <h2 class="block-title" id="output-title">One folder per search, in your own Google Drive</h2>
         <p class="block-lead">Nothing is stored with us: there is no server behind this page. It saves straight into your Drive, into a folder it creates, and it can see nothing else there. Without Drive, the results still export as a spreadsheet or a RIS file.</p>
@@ -357,9 +358,11 @@ ER  - </code></pre>
             </div>
           </div>
         </div>
+       </div>
       </section>
 
-      <section class="block wrap" id="method" aria-labelledby="method-title">
+      <section class="band" id="method" aria-labelledby="method-title">
+       <div class="wrap">
         <p class="kicker">How it works</p>
         <h2 class="block-title" id="method-title">Every step is shown, and you can change any of them</h2>
         <ol class="method">
@@ -377,11 +380,15 @@ ER  - </code></pre>
           <div><dt>OpenAIRE</dt><dd>Datasets in the European open science graph.</dd></div>
         </dl>
         <p class="sources-also">Also used: <b>Wikidata</b> for synonyms and names in other languages, <b>Wikimedia MinT</b> for machine translation, and <b>Semantic Scholar</b> for open versions of papers, such as arXiv preprints.</p>
+       </div>
       </section>
 
-      <section class="block wrap" id="faq" aria-labelledby="faq-title">
-        <p class="kicker">Questions researchers ask</p>
-        <h2 class="block-title" id="faq-title">What it does not do, and other things worth knowing</h2>
+      <section class="band band-tint" id="faq" aria-labelledby="faq-title">
+       <div class="wrap faq-grid">
+        <div class="faq-head">
+          <p class="kicker">Questions researchers ask</p>
+          <h2 class="block-title" id="faq-title">What it does not do, and other things worth knowing</h2>
+        </div>
         <div class="faq">
           <details>
             <summary>Does it replace Scopus, Web of Science or PsycINFO?</summary>
@@ -416,19 +423,22 @@ ER  - </code></pre>
             <p>Each saved folder has the document “Search details”: the sources, the date, every term and translation, the filters, the exact queries and the number of records. That is the material for a methods section and a search appendix. The citation for Research Finder is below.</p>
           </details>
         </div>
+       </div>
       </section>
 
-      <section class="block wrap" id="maker" aria-labelledby="maker-title" hidden>
+      <section class="band" id="maker" aria-labelledby="maker-title" hidden>
+       <div class="wrap">
         <p class="kicker">Who made it</p>
         <h2 class="block-title" id="maker-title">Who is behind it, and how to cite it</h2>
         <div class="maker" id="maker-body"></div>
+       </div>
       </section>
 
       <section class="cta">
         <div class="wrap cta-inner">
           <h2>Start with your topic</h2>
           <p>Type a few keywords. A search takes about fifteen seconds: it first reads how studies word your topic and translates the terms.</p>
-          <button type="button" class="btn btn-light" id="cta-search">Go to the search <svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+          <button type="button" class="btn btn-hl" id="cta-search">Go to the search <svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>
         </div>
       </section>
     </div>
