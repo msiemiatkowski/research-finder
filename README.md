@@ -1,7 +1,13 @@
 # Research Finder
 
-Find the studies and open data on your topic in 40 languages, with a record of how you found them: a free search
-for systematic reviews, meta-analyses, literature reviews and secondary data analysis.
+Find the studies your keywords miss: a free literature search for systematic reviews, meta-analyses and literature
+reviews. It searches for every wording researchers use for a topic, in 40 languages, in about 270 million studies
+and five open-data repositories, and files the records, open PDFs, data files and a record of the search in the
+visitor's own Google Drive.
+
+A real example (11 November 2026, titles and abstracts in OpenAlex, each study counted once): the phrase "trust in
+science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; with translations into 39 languages,
+3,402. A search for the phrase alone misses 1,019 of them, 3 in every 10.
 
 **https://msiemiatkowski.github.io/research-finder/**
 
@@ -12,11 +18,12 @@ for systematic reviews, meta-analyses, literature reviews and secondary data ana
   languages, against language bias; covers preprints, theses, datasets and OSF preregistrations, against publication
   bias; copies the search as a Boolean string for Scopus, Web of Science or PsycINFO, or opens it in PubMed, Google
   Scholar or BASE; saves every record a search finds, with abstracts and without duplicates,
-  as a Google Sheet and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote; collects the open PDFs and
-  data files; and records the sources, date, terms, filters, exact queries and counts for the PRISMA flow diagram
-  and the search appendix (PRISMA 2020 items 6 and 7).
+  as a Google Sheet and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote; links every open PDF and
+  copies the ones it can fetch, and the open data files; and records the sources, date, terms, filters, exact
+  queries and counts for the PRISMA flow diagram and the search appendix (PRISMA 2020 items 6 and 7).
 - **Literature reviews.** How many studies each keyword has, existing reviews (Review filter), the most cited and the
-  newest work, related phrases and the topics most often studied with yours, the open PDFs in one folder.
+  newest work, related phrases and the topics most often studied with yours, every abstract in one sheet and a
+  RIS file for a reference manager.
 - **Secondary data analysis.** DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE at once, with the open data
   files saved into one Drive folder per dataset and a sheet listing every file.
 - **Cross-cultural research.** Studies published in other languages, such as validation studies of adapted
@@ -36,8 +43,8 @@ Research Finder/
                      (and if not, why)
     Search details   Google Doc: keywords, every term and translation used, filters, the exact queries,
                      what was saved and what could not be
-    Papers/          the open PDFs, named author_year_title
-    Datasets/        one folder per dataset with its open data files
+    Papers/          a search for studies: the open PDFs that could be fetched, named author_year_title
+    Datasets/        a search for datasets: one folder per dataset with its open data files
 ```
 
 Files a save did not copy (a site that does not let browsers download them, a size limit, an interruption) can be
@@ -140,8 +147,10 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
 
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
-(Google sign-in and the folder structure), `main.js` (the page) and `util.js`. Module imports carry a version
-(`?v=30`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(Google sign-in and the folder structure), `main.js` (the search page), `landing.js` (the tabs of the front page) and
+`util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
+of a real search; run it again and update them when they age. Module imports carry a version
+(`?v=31`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 

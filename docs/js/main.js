@@ -1,10 +1,10 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=30";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=30";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=30";
+import { CONFIG } from "../config.js?v=31";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=31";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=31";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=30";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=30";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=31";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=31";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
@@ -15,6 +15,9 @@ const state = {
 };
 let results = [], total = 0, more = false, page = 1, notes = [], extra = {}, searchSeq = 0, highlight = null;
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
+/* What the list shows while a search is on its way: what is happening, and the shapes of the results to come. */
+const waiting = (text) => [h("li", { class: "loading", role: "status" }, spinner(), text),
+  ...[0, 1, 2].map(() => h("li", { class: "skeleton", "aria-hidden": "true" }, h("i"), h("i"), h("i"), h("i"), h("i")))];
 
 /* ------------------------------------------------------------------ searching */
 const groupsForSearch = () => state.groups.map((g) => activeTerms(g, state.langsOff)).filter((ts) => ts.length);
@@ -46,7 +49,7 @@ async function runSearch() {
     return;
   }
   renderToolbar("Searching…");
-  fill($("#results"), h("li", { class: "loading" }, spinner(), `Searching ${src.note}…`));
+  fill($("#results"), waiting(`Searching ${src.note}…`));
   $("#more").hidden = true;
   try {
     const res = await src.search(q, page, PAGE_SIZE[state.tab]);
@@ -113,16 +116,19 @@ function preparing() {
   document.body.classList.add("searching");
   $("#toolbar").hidden = true;
   $("#more").hidden = true;
-  fill($("#results"), h("li", { class: "loading" }, spinner(),
-    "Preparing the search: the wordings studies use for your keywords, and their translations into 39 languages…"));
+  fill($("#results"), waiting("Preparing the search: reading how studies word your keywords, and translating the terms into 39 languages…"));
 }
 
 /* Each keyword is looked up (Wikidata, the studies, the translations) before the search, so that it runs once with
    all the terms. */
-async function setQuery(text) {
-  state.input = String(text || "").trim();
+async function setQuery(text, fromHistory = false) {
+  const input = String(text || "").trim();
+  if (!fromHistory && input !== state.input) pushNext = true;
+  state.input = input;
   $("#q").value = state.input;
   $("#about").hidden = true;
+  toHash();
+  if (window.scrollY > 0) window.scrollTo(0, 0);
   const groups = state.groups = parseInput(state.input).map(makeGroup);
   renderGroups();
   if (!groups.length) return search(0);
@@ -290,6 +296,23 @@ function marked(text, re) {
 
 const link = (href, text, title) => h("a", { href, target: "_blank", rel: "noopener noreferrer", title }, text);
 
+/* The start of the abstract, and the rest of it on request. */
+function abstractOf(r) {
+  if (!r.abstract) return null;
+  const p = h("p", { class: "abstract" }, marked(r.abstract, highlight));
+  if (!r.full || r.full.length < r.abstract.length + 40) return p;
+  let whole = false;
+  const more = h("button", { type: "button", class: "link-btn", "aria-expanded": "false" }, "Whole abstract");
+  more.addEventListener("click", () => {
+    whole = !whole;
+    more.textContent = whole ? "Less" : "Whole abstract";
+    more.setAttribute("aria-expanded", String(whole));
+    fill(p, marked(whole ? r.full : r.abstract, highlight), " ", more);
+  });
+  p.append(" ", more);
+  return p;
+}
+
 function renderRecord(r) {
   const href = r.doi ? `https://doi.org/${r.doi}` : safeUrl(r.url) || safeUrl(r.pdf);
   const lang = r.lang && r.lang !== "en" ? LANG_NAMES[r.lang] || r.lang.toUpperCase() : "";
@@ -304,7 +327,7 @@ function renderRecord(r) {
       h("span", { class: "src" }, r.source)),
     h("h3", {}, href ? link(href, marked(r.title, highlight)) : h("span", {}, marked(r.title, highlight))),
     [r.authors, r.venue].filter(Boolean).length ? h("div", { class: "byline" }, [r.authors, r.venue].filter(Boolean).join(" · ")) : null,
-    r.abstract ? h("p", { class: "abstract" }, marked(r.abstract, highlight)) : null);
+    abstractOf(r));
   if (r.keywords && r.keywords.length) {
     li.append(h("div", { class: "r-kw" }, r.keywords.map((k) => h("button", { type: "button", title: `Search for “${k}”`, onclick: () => setQuery(k) }, k))));
   }
@@ -321,27 +344,40 @@ function renderToolbar(status) {
   bar.hidden = false;
   const src = SOURCES[state.tab];
   const split = extra.parts > 1;
-  const count = status || (state.tab === "data" && extra.totals
-    ? `${plural(total, "result")} (${Object.entries(extra.totals).map(([n, c]) => `${n} ${fmt(c)}`).join(", ")})`
-    : `${split ? "about " : ""}${plural(total, "result")}${split ? ` · ${extra.parts} searches` : ""}`);
+  const data = state.tab === "data";
+  const under = status ? null
+    : data && extra.totals ? h("small", {}, Object.entries(extra.totals).map(([n, c]) => `${n} ${fmt(c)}`).join(" · "))
+      : split ? h("small", { title: `The terms did not fit in one OpenAlex search (1,500 characters), so Research Finder made ${extra.parts} searches and put their results together. The total counts a study found by two of them twice.` },
+        `from ${extra.parts} searches put together: the terms do not fit in one`) : null;
   fill(bar,
-    h("span", { class: "count", title: split ? `The terms did not fit in one OpenAlex search (1,500 characters), so Research Finder made ${extra.parts} searches and put their results together. The total counts a study found by two of them twice.` : null }, count),
-    h("select", { "aria-label": "Sort", onchange: (e) => { state.sort = e.target.value; search(0); } },
-      src.sorts.map(([v, l]) => h("option", { value: v, selected: state.sort === v }, l))),
-    h("button", { type: "button", class: "btn btn-small", onclick: copySearchString, title: "Copy the terms as a Boolean search string" }, "Copy search string"),
-    externalMenu(),
-    results.length ? menu("Export ▾", [
-      ["Spreadsheet (CSV)", exportCsv],
-      ["References (RIS) for Zotero, EndNote, Rayyan, Covidence or ASReview", exportRis],
-    ], "Download the results shown, with their abstracts") : null,
-    results.length ? h("button", { type: "button", class: "btn btn-small btn-primary-soft", onclick: openSave, title: "Save the results, open PDFs and data files to your Google Drive" }, "Save to Google Drive") : null);
-  const msgs = [...notes];
-  if (extra.dropped) {
-    msgs.push(state.tab === "studies"
-      ? `${plural(extra.dropped, "term")} left out: even split into ${maxParts()} searches, the terms are longer than OpenAlex takes. ${local.get("openalexKey", "") ? "Choose fewer languages under Settings." : "A free OpenAlex key (Settings) allows up to 8 searches; or choose fewer languages."}`
-      : `${plural(extra.dropped, "term")} left out: the query would be too long for the repositories. The English terms and the languages with the most research come first.`);
+    h("div", { class: "tb-main" },
+      h("p", { class: "count" }, status || `${split ? "About " : ""}${plural(total, data ? "dataset" : "study", data ? "datasets" : "studies")}`, under),
+      results.length ? h("button", { type: "button", class: "btn btn-primary tb-save", onclick: openSave, title: "Save the results, open PDFs and data files to your Google Drive" }, "Save to Google Drive") : null),
+    h("div", { class: "tb-tools" },
+      h("select", { "aria-label": "Sort", onchange: (e) => { state.sort = e.target.value; search(0); } },
+        src.sorts.map(([v, l]) => h("option", { value: v, selected: state.sort === v }, l))),
+      h("button", { type: "button", class: "btn btn-small", onclick: copySearchString, title: "Copy the terms as a Boolean search string" }, "Copy search string"),
+      externalMenu(),
+      results.length ? menu("Export ▾", [
+        ["Spreadsheet (CSV)", exportCsv],
+        ["References (RIS) for Zotero, EndNote, Rayyan, Covidence or ASReview", exportRis],
+      ], "Download the results shown, with their abstracts") : null));
+  const settings = (label) => h("button", { type: "button", class: "btn btn-small", onclick: openSettings }, label);
+  const msgs = notes.map((text) => ({ text, warn: true }));
+  if (extra.dropped && !data) {
+    const key = local.get("openalexKey", "");
+    msgs.push({
+      text: `A long search: ${plural(extra.dropped, "term")} did not fit and ${extra.dropped === 1 ? "was" : "were"} left out. English terms and the languages with the most research come first. `
+        + (key ? "Fewer languages make room for the ones you need." : "A free OpenAlex key makes room for more of them."),
+      actions: [key ? null : settings("Add a key"), settings("Choose languages")],
+    });
+  } else if (extra.dropped) {
+    msgs.push({ text: `${plural(extra.dropped, "term")} left out: the query would be too long for the repositories. The English terms and the languages with the most research come first.` });
   }
-  if (msgs.length) bar.append(h("div", { class: "toolbar-notes" }, msgs.map((m) => h("p", { class: "note warn" }, m))));
+  if (msgs.length) {
+    bar.append(h("div", { class: "toolbar-notes" }, msgs.map((m) => h("div", { class: `callout${m.warn ? " warn" : ""}` },
+      h("p", {}, m.text), m.actions ? h("div", { class: "callout-actions" }, m.actions) : null))));
+  }
 }
 
 function searchString(englishOnly = false, maxLen = 100000) {
@@ -465,8 +501,7 @@ function openSave() {
           " to copy them too). For other repositories the sheet links to the dataset's page."]),
     h("p", { class: "note" }, "A large save takes a while: keep this tab open. Your Drive needs to be connected: Google asks you to allow access the first time, and to connect again if a save takes more than an hour."),
     h("div", { class: "save-actions" },
-      h("button", { type: "button", class: "btn btn-primary", id: "save-go", onclick: () => runSave(Number(howMany.value), files.checked, Number(fileLimit.value), Number(totalLimit.value)) }, "Save to my Drive"),
-      h("button", { type: "button", class: "btn btn-ghost", onclick: () => d.close() }, "Close")),
+      h("button", { type: "button", class: "btn btn-primary", id: "save-go", onclick: () => runSave(Number(howMany.value), files.checked, Number(fileLimit.value), Number(totalLimit.value)) }, "Save to my Drive")),
     h("div", { id: "save-signin", class: "save-progress" }),
     h("div", { id: "save-progress", class: "save-progress", role: "status", "aria-live": "polite" }));
   if (!d.open) d.showModal();
@@ -994,6 +1029,7 @@ function renderAbout() {
 }
 
 /* ------------------------------------------------------------------ address bar */
+let pushNext = false;        // a new search gets its own entry in the browser's history, so that Back returns to the one before
 function toHash() {
   const p = new URLSearchParams();
   const f = state.filters;
@@ -1009,7 +1045,10 @@ function toHash() {
   if (f.open) p.set("open", "1");
   if (f.fulltext) p.set("fulltext", "1");
   const s = p.toString();
-  history.replaceState(null, "", s ? `#${s}` : location.pathname + location.search);
+  const url = s ? `#${s}` : location.pathname + location.search;
+  if (pushNext && location.hash !== (s ? `#${s}` : "")) history.pushState(null, "", url);
+  else history.replaceState(null, "", url);
+  pushNext = false;
 }
 
 function fromHash() {
@@ -1051,6 +1090,13 @@ function start() {
   if (panel) { renderAbout(); $("#about").hidden = false; }
 }
 
+window.addEventListener("popstate", () => {
+  const panel = fromHash();
+  renderTabs();
+  renderFilters();
+  setQuery(state.input, true);
+  if (panel) { renderAbout(); $("#about").hidden = false; }
+});
 onDriveChange((on) => {
   const b = $("#drive-btn");
   b.textContent = on ? "Drive connected" : "Connect Google Drive";
@@ -1062,6 +1108,7 @@ $("#drive-btn").addEventListener("click", async () => {
 });
 $("#settings-btn").addEventListener("click", openSettings);
 $("#earlier-close").addEventListener("click", () => $("#earlier").close());
+$("#save-close").addEventListener("click", () => $("#save").close());
 $("#search-form").addEventListener("submit", (e) => { e.preventDefault(); setQuery($("#q").value); });
 document.querySelectorAll(".example").forEach((b) => b.addEventListener("click", () => {
   setQuery(b.dataset.q || b.textContent);
