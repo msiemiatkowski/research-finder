@@ -27,7 +27,9 @@ science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; 
 - **Secondary data analysis.** DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE at once, with the open data
   files saved into one Drive folder per dataset and a sheet listing every file.
 - **Cross-cultural research.** Studies published in other languages, such as validation studies of adapted
-  questionnaires in national journals; filter by the language of the study.
+  questionnaires in national journals; filter by the language of the study. Their titles come with an automatic
+  English translation in [brackets], and an abstract translates with one click, for a first look at what a study is
+  about.
 
 ## What is saved
 
@@ -84,6 +86,15 @@ limited to the files the app creates (`drive.file`).
    download files, so theirs are listed with their download links (or copied through a file relay). You choose how
    many results, up to all of them, and the size limits. A save of all results pages through every part of the search
    200 at a time; when OpenAlex's free allowance runs out, it saves what it has and says how far it got.
+6. **Results in other languages.** The language of a title is read from its letters and small words, with the
+   record's language as a hint (OpenAlex leaves many empty and files some English titles under other languages).
+   A title in another language gets an English translation from MinT, shown in [brackets] and labelled as an
+   automatic translation, not a professional one; "English translation" under an abstract translates the abstract.
+   Each title's translation is translated back as a check: a translation whose back-translation shares too few
+   letter groups with the original (machine translation sometimes writes a sentence of its own for a short title,
+   such as "The report also highlights..."), or one that opens or repeats itself the way those made-up sentences do,
+   is tried once more, written as a sentence or not, and otherwise not shown. Titles are sent to MinT by language,
+   16 to a request, and remembered in the browser. Settings can turn this off.
 
 ### Limits
 
@@ -101,6 +112,9 @@ limited to the files the app creates (`drive.file`).
   as links. The "Files" sheet says why each one was not saved.
 - Names in other languages come from Wikidata and from machine translation; the back-translation check catches many
   but not all poor translations. Check them before relying on them, for example in a systematic review.
+- The English translations of titles and abstracts are rough, more so from Chinese, Japanese and Korean, and the check
+  catches made-up translations, not every wrong word ("stosunek", attitude, can come out as "ratio"). Use them to see
+  what a study is about, not to include or exclude it.
 - OSF and figshare files cannot be copied into Drive by a browser alone; the "Files" sheet has their download links,
   or a file relay copies them (below).
 
@@ -146,11 +160,12 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
    `http://localhost:8765` as an authorised origin to test Drive saving).
 
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
-translation), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
+translation of the terms), `translate.js` (English for results in other languages: which language a title is in,
+the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
 (Google sign-in and the folder structure), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=32`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=33`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 ## Creator
 

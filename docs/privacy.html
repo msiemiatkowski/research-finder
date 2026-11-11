@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=32">
+  <link rel="stylesheet" href="style.css?v=33">
 </head>
 <body>
   <header class="top">
@@ -23,7 +23,7 @@
   <main class="wrap">
     <section class="panel prose" style="margin-top: 24px">
       <h2>Privacy policy</h2>
-      <p class="muted">Last updated 1 November 2026.</p>
+      <p class="muted">Last updated 11 November 2026.</p>
 
       <p>Research Finder is a free, open-source website that searches open indexes of studies and data repositories
         (<a href="https://github.com/msiemiatkowski/research-finder">source code</a>). It runs entirely in your
@@ -33,7 +33,8 @@
       <p>The keywords you type, and the terms made from them, are sent from your browser directly to the services that
         answer them: <a href="https://openalex.org">OpenAlex</a>, <a href="https://www.wikidata.org">Wikidata</a>,
         Wikimedia's machine translation service <a href="https://mint.wmcloud.org">MinT</a> (which translates the terms
-        into other languages), <a href="https://datacite.org">DataCite</a>, <a href="https://zenodo.org">Zenodo</a>,
+        into other languages, the titles of results in other languages into English, and an abstract when you choose
+        “English translation”; Settings can turn the translations of results off), <a href="https://datacite.org">DataCite</a>, <a href="https://zenodo.org">Zenodo</a>,
         <a href="https://dataverse.harvard.edu">Harvard Dataverse</a>, <a href="https://osf.io">OSF</a> (through its
         search index, SHARE) and <a href="https://www.openaire.eu">OpenAIRE</a>. When you save a search, the DOIs of the
         studies are also sent to <a href="https://www.semanticscholar.org">Semantic Scholar</a> to find open versions of
@@ -47,7 +48,7 @@
         your own free Cloudflare account (<a href="relay/worker.js">its code</a>). Without one, nothing is sent to a relay
         and those files are listed with their links.</p>
       <p>Settings you choose (languages, an OpenAlex key, an email address, a file relay) and the machine translations of your terms
-        are stored only in your browser (local storage) and can be removed by clearing it. An OpenAlex key or email
+        and of titles are stored only in your browser (local storage) and can be removed by clearing it. An OpenAlex key or email
         address is sent only to OpenAlex, with your searches.</p>
 
       <h3>Google Drive</h3>

@@ -1,10 +1,11 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=32";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=32";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=32";
+import { CONFIG } from "../config.js?v=33";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=33";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=33";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=32";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=32";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=33";
+import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText } from "./translate.js?v=33";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=33";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
@@ -296,26 +297,84 @@ function marked(text, re) {
 
 const link = (href, text, title) => h("a", { href, target: "_blank", rel: "noopener noreferrer", title }, text);
 
-/* The start of the abstract, and the rest of it on request. */
+const MT_NOTE = "Made by Wikimedia's open machine translation (MinT). It can be wrong: read the original before you include or exclude a study.";
+
+/* A title in another language, in English: [the translation], said to be an automatic one. */
+function titleInEnglish(r, from) {
+  const line = h("p", { class: "r-en" });
+  const show = (t) => {
+    if (!t || (t.ok && !t.text)) { line.remove(); return; }
+    if (!t.ok) {
+      fill(line, h("span", { class: "tr-none", title: "Translated back, the machine translation had almost nothing in common with the original title, so it is not shown." },
+        `No reliable automatic translation of this ${languageName(from)} title`));
+      return;
+    }
+    fill(line, h("span", { class: "tr-text", lang: "en" }, "[", marked(t.text, highlight), "]"), " ",
+      h("span", { class: "tr-tag", title: `${MT_NOTE} It was checked by translating it back.` }, `Automatic translation from ${languageName(from)}, not a professional one`));
+  };
+  const known = knownTitle(from, r.title);
+  if (known && known.ok && !known.text) return null;
+  if (known) show(known);
+  else {
+    fill(line, h("span", { class: "tr-wait" }, "Translating the title into English…"));
+    translateTitle(from, r.title).then(show);
+  }
+  return line;
+}
+
+/* A button that translates the whole abstract into English, and the box it shows the translation in. */
+function englishAbstract(r, from) {
+  const box = h("div", { class: "abstract-en", lang: "en", hidden: true });
+  const button = h("button", { type: "button", class: "link-btn", "aria-expanded": "false" }, "English translation");
+  button.addEventListener("click", async () => {
+    if (!box.hidden) {
+      box.hidden = true;
+      button.textContent = "English translation";
+      button.setAttribute("aria-expanded", "false");
+      return;
+    }
+    if (!box.childElementCount) {
+      button.disabled = true;
+      button.textContent = "Translating…";
+      const text = await translateText(from, r.full || r.abstract);
+      button.disabled = false;
+      if (!text) { button.textContent = "English translation"; toast("The translation service did not answer. Try again in a moment.", 4000); return; }
+      fill(box, h("p", { class: "tr-tag", title: MT_NOTE }, `Automatic translation of the abstract from ${languageName(from)}, not a professional one`),
+        h("p", {}, marked(text, highlight)));
+    }
+    box.hidden = false;
+    button.textContent = "Hide the translation";
+    button.setAttribute("aria-expanded", "true");
+  });
+  return { box, button };
+}
+
+/* The start of the abstract, the rest of it on request, and its English when it is in another language. */
 function abstractOf(r) {
   if (!r.abstract) return null;
-  const p = h("p", { class: "abstract" }, marked(r.abstract, highlight));
-  if (!r.full || r.full.length < r.abstract.length + 40) return p;
+  const p = h("p", { class: "abstract" });
+  const from = translationsOn() ? languageOf((r.full || r.abstract).slice(0, 600), r.lang) : "";
+  const english = from ? englishAbstract(r, from) : null;
+  const more = r.full && r.full.length >= r.abstract.length + 40
+    ? h("button", { type: "button", class: "link-btn", "aria-expanded": "false" }, "Whole abstract") : null;
   let whole = false;
-  const more = h("button", { type: "button", class: "link-btn", "aria-expanded": "false" }, "Whole abstract");
-  more.addEventListener("click", () => {
-    whole = !whole;
-    more.textContent = whole ? "Less" : "Whole abstract";
-    more.setAttribute("aria-expanded", String(whole));
-    fill(p, marked(whole ? r.full : r.abstract, highlight), " ", more);
-  });
-  p.append(" ", more);
-  return p;
+  const draw = () => fill(p, marked(whole ? r.full : r.abstract, highlight), more ? [" ", more] : null, english ? [" ", english.button] : null);
+  if (more) {
+    more.addEventListener("click", () => {
+      whole = !whole;
+      more.textContent = whole ? "Less" : "Whole abstract";
+      more.setAttribute("aria-expanded", String(whole));
+      draw();
+    });
+  }
+  draw();
+  return english ? [p, english.box] : p;
 }
 
 function renderRecord(r) {
   const href = r.doi ? `https://doi.org/${r.doi}` : safeUrl(r.url) || safeUrl(r.pdf);
-  const lang = r.lang && r.lang !== "en" ? LANG_NAMES[r.lang] || r.lang.toUpperCase() : "";
+  const lang = r.lang && r.lang !== "en" ? languageName(r.lang) : "";
+  const from = translationsOn() ? languageOf(r.title, r.lang) : "";
   const li = h("li", { class: "result" },
     h("div", { class: "r-top" },
       h("span", { class: `badge kind-${r.kind}` }, KIND_NAMES[r.kind] || "Record"),
@@ -325,7 +384,8 @@ function renderRecord(r) {
       r.cited ? h("span", { title: "Times cited" }, `${fmt(r.cited)} citations`) : null,
       r.files && r.files.length ? h("span", { title: "Open data files" }, plural(r.files.length, "file")) : null,
       h("span", { class: "src" }, r.source)),
-    h("h3", {}, href ? link(href, marked(r.title, highlight)) : h("span", {}, marked(r.title, highlight))),
+    h("h3", { lang: from || null }, href ? link(href, marked(r.title, highlight)) : h("span", {}, marked(r.title, highlight))),
+    from ? titleInEnglish(r, from) : null,
     [r.authors, r.venue].filter(Boolean).length ? h("div", { class: "byline" }, [r.authors, r.venue].filter(Boolean).join(" · ")) : null,
     abstractOf(r));
   if (r.keywords && r.keywords.length) {
@@ -909,6 +969,10 @@ function openSettings() {
       h("button", { type: "button", class: "btn btn-small", onclick: () => { LANGS.forEach((l) => setLang(l, true)); openSettings(); } }, "All"),
       h("button", { type: "button", class: "btn btn-small", onclick: () => { LANGS.forEach((l) => setLang(l, false)); openSettings(); } }, "English only")),
     langs,
+    h("h3", {}, "Results in other languages"),
+    h("label", { class: "f-option" }, h("input", { type: "checkbox", checked: translationsOn(), onchange: (e) => local.set("titlesEn", e.target.checked ? null : false) }),
+      "Show their titles with an English translation"),
+    h("p", { class: "note" }, "An automatic translation in [brackets] under each title in another language, and a button that translates its abstract. Wikimedia's MinT makes them, the open service that translates your keywords, and each title's translation is checked by translating it back. They are machine translations, not professional ones: enough to see what a study is about, not to quote."),
     h("h3", {}, "Google Drive"), drive, earlier,
     h("h3", {}, h("label", { for: "set-relay" }, "File relay (optional)")),
     h("p", { class: "note" }, "OSF and figshare do not let web pages download their files, and neither do many publishers for their open-access PDFs, so Research Finder lists those with their links. A file relay copies them into your Drive too: a small program that you run on your own free Cloudflare account. It fetches each file and passes it straight on, keeping nothing. You decide whether to set one up; its address is kept only in this browser."),
@@ -929,7 +993,7 @@ function openSettings() {
     h("h3", {}, h("label", { for: "set-mail" }, "Your email (optional)")),
     h("p", { class: "note" }, "Sent only to OpenAlex with your searches, as their guidelines ask; kept only in this browser."), mail,
     h("h3", {}, "Other services"),
-    h("p", { class: "note" }, "No other keys are needed. Wikidata, Wikimedia's MinT translation, DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE are free and open. Machine translations are remembered in this browser, so each term is translated only once. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one."));
+    h("p", { class: "note" }, "No other keys are needed. Wikidata, Wikimedia's MinT translation, DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE are free and open. Machine translations are remembered in this browser, so each term and title is translated only once. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one."));
   if (relay.value.trim()) check();
   d.onclose = () => {
     local.set("relay", relay.value.trim());
@@ -1006,6 +1070,8 @@ function renderAbout() {
       h("li", {}, h("strong", {}, "The wordings studies use. "), `Research Finder reads the titles and abstracts of the ${SAMPLE} studies in OpenAlex that match each keyword best and finds the phrases that say the same in other words: all of the keyword's words, in any form and order (“trust in scientists” and “trustworthiness of science” for “trust in science”). These are searched too. Related phrases (“epistemic trust”) and the keywords of those studies are offered for you to add.`),
       h("li", {}, h("strong", {}, "Translations. "), "Every English term is translated into 39 languages by Wikimedia's open machine translation (MinT), and each translation is translated back into English as a check: one that does not come back with the same meaning is left out."),
       h("li", {}, h("strong", {}, "The search. "), "All the terms become one Boolean query (OR within a keyword, AND between keywords), split into several queries when it is longer than a service takes. Studies come from OpenAlex; datasets from DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE.")),
+    h("h3", {}, "Results in other languages"),
+    h("p", {}, "A title in another language is shown with an automatic English translation in [brackets], and “English translation” under its abstract translates the abstract, both by Wikimedia's MinT. Each title's translation is translated back into the original language as a check: one that has almost nothing in common with the original, as machine translation sometimes writes for a short title, is not shown. They are machine translations, not professional ones, for a first look at what a study is about; Settings can turn them off."),
     h("h3", {}, "What is saved"),
     h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
     h("h3", {}, "Reporting a search"),

@@ -13,9 +13,9 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=32">
-  <script type="module" src="js/main.js?v=32"></script>
-  <script type="module" src="js/landing.js?v=32"></script>
+  <link rel="stylesheet" href="style.css?v=33">
+  <script type="module" src="js/main.js?v=33"></script>
+  <script type="module" src="js/landing.js?v=33"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -231,6 +231,7 @@
             <p class="task-lead">Much research is published in the language of the people it studies, in national journals that the big databases index thinly.</p>
             <ul class="gains">
               <li><h4>Research published in other languages</h4><p>346 of the 3,402 studies on “trust in science” are not in English. They are in more than 25 other languages.</p></li>
+              <li><h4>A first look in English</h4><p>Their titles come with an automatic English translation in [brackets], and an abstract translates with one click. Machine translations, not professional ones: enough to see what a study is about.</p></li>
               <li><h4>Adapted and validated measures</h4><p>The validation study of a questionnaire in another language is often published in that language, in a national journal.</p></li>
               <li><h4>Local evidence</h4><p>Filter by the language of the study to see what has been published in Polish, Portuguese or Korean.</p></li>
               <li><h4>You stay in control</h4><p>Every translation is shown and can be switched off, one term or one language at a time. Doubtful machine translations are left out unless you add them.</p></li>
@@ -249,11 +250,11 @@
               <div class="rest"><dt>More than 20 others</dt><dd><span class="bar"><i style="--w:100%"></i></span><b>75</b></dd></div>
             </dl>
             <ul class="found">
-              <li><span class="badge">Polish</span><cite lang="pl">Stosunek Polaków do nauki w pandemii COVID-19</cite><span>Sadowski, Kołczyńska, Ciepielewska-Kowalik and Mach · 2021 · Nauka</span></li>
-              <li><span class="badge">Spanish</span><cite lang="es">Cambios en la percepción de la ciencia derivados de la pandemia de la COVID-19</cite><span>Blanco, Del Pino, Pereira and Arias Gago · 2023 · Enseñanza de las Ciencias</span></li>
-              <li><span class="badge">Ukrainian</span><cite lang="uk">Довіра до вчених у вимірі міжнародних і національних опитувань</cite><span>Заєць · 2025 · Nauka ta naukoznavstvo</span></li>
+              <li><span class="badge">Polish</span><cite lang="pl">Stosunek Polaków do nauki w pandemii COVID-19</cite><span class="found-en" lang="en">[The ratio of Poles to science in the COVID-19 pandemic]</span><span>Sadowski, Kołczyńska, Ciepielewska-Kowalik and Mach · 2021 · Nauka</span></li>
+              <li><span class="badge">Spanish</span><cite lang="es">Cambios en la percepción de la ciencia derivados de la pandemia de la COVID-19</cite><span class="found-en" lang="en">[Changes in perception of science stemming from the COVID-19 pandemic]</span><span>Blanco, Del Pino, Pereira and Arias Gago · 2023 · Enseñanza de las Ciencias</span></li>
+              <li><span class="badge">Ukrainian</span><cite lang="uk">Довіра до вчених у вимірі міжнародних і національних опитувань</cite><span class="found-en" lang="en">[Trust in scientists in the scale of international and national surveys]</span><span>Заєць · 2025 · Nauka ta naukoznavstvo</span></li>
             </ul>
-            <figcaption>Three of the 273 studies that only the translated terms found.</figcaption>
+            <figcaption>Three of the 273 studies that only the translated terms found, with the automatic English translations the results show. They are rough: here “stosunek” means “attitude”, not “ratio”.</figcaption>
           </figure>
         </div>
        </div>
@@ -396,7 +397,11 @@ ER  - </code></pre>
           </details>
           <details>
             <summary>How good are the translations?</summary>
-            <p>They are machine translations, except where Wikidata has the name of a topic in a language. Each one is translated back into English, and those that return with another meaning are left out. That catches many poor translations, not all. Look through them before you rely on them in a review, and switch off any that do not fit.</p>
+            <p>The translations of your search terms are machine translations, except where Wikidata has the name of a topic in a language. Each one is translated back into English, and those that return with another meaning are left out. That catches many poor translations, not all. Look through them before you rely on them in a review, and switch off any that do not fit.</p>
+          </details>
+          <details>
+            <summary>Can I see what a study in another language is about?</summary>
+            <p>Yes. A title in another language comes with an automatic English translation in [brackets], and “English translation” under its abstract translates the whole abstract. They come from Wikimedia’s open machine translation, MinT, and the page labels each one as an automatic translation, not a professional one: good for a first look, not for quoting. Each title’s translation is translated back as a check, and one that has almost nothing in common with the original is not shown. Read the original, or ask someone who reads the language, before you include or exclude a study. You can turn the translations off under Settings.</p>
           </details>
           <details>
             <summary>Why are some PDFs saved and others only linked?</summary>
