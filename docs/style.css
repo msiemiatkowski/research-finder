@@ -612,6 +612,19 @@ dialog::backdrop { background: rgb(10 12 10 / 55%); }
 .tree .t-1 { margin-left: 20px; }
 .tree .t-2 { margin-left: 40px; }
 .tree li span { color: var(--muted); margin-left: 8px; font: 500 12px var(--mono); }
+.dialog-inner textarea { width: 100%; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: 13.5px/1.5 var(--mono); margin-top: 6px; resize: vertical; }
+.tools-label { display: block; font-weight: 650; margin-top: 14px; }
+.tools-out { margin-top: 14px; }
+.tools-head { font-size: 16px; line-height: 1.45; }
+.tools-list { margin: 8px 0 0; padding-left: 24px; }
+.tools-list li { margin: 0 0 11px; line-height: 1.4; }
+.tools-list li a { font-weight: 600; }
+.tools-meta { display: block; color: var(--muted); font-size: 13.5px; }
+.tools-why { display: block; color: var(--text-2); font-size: 13.5px; }
+.tools-miss strong { color: var(--danger-text); }
+.tools-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.tools-actions .tools-actions { margin: 0; }
+.tools-ids { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
 .dialog-inner .tree { background: var(--surface-2); border-radius: 10px; padding: 12px 16px; }
 .dialog-inner .tree li { padding-left: 0; margin: 4px 0; }
 .dialog-inner .tree li span { font: inherit; margin-left: 0; }

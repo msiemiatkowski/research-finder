@@ -24,7 +24,10 @@ science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; 
   were retracted, withdrawn, corrected or given an expression of concern are flagged (Crossref, with the Retraction
   Watch database); OpenAlex's study-design tags (randomized controlled trial, observational study, systematic review,
   meta-analysis, study protocol and others) are shown and can be filtered on; and studies with replication attempts
-  in the FORRT Replication Database list them with their outcomes.
+  in the FORRT Replication Database list them with their outcomes. Review tools check the search against studies it
+  should find (relative recall, and why each miss happened), search the citations of the included studies backward
+  and forward, and list the works the results cite most that the search misses; "Search details" adds the PRISMA-S
+  items, a methods paragraph and the automated steps to report, next to a pre-filled PRISMA 2020 flow diagram.
 - **Literature reviews.** How many studies each keyword has, existing reviews (Review filter), the most cited and the
   newest work, related phrases and the topics most often studied with yours, every abstract in one sheet and a
   RIS file for a reference manager.
@@ -50,7 +53,10 @@ Research Finder/
     Files            Google Sheet: every file found, with its download link, and whether it was saved
                      (and if not, why)
     Search details   Google Doc: keywords, every term and translation used, filters, the exact queries,
-                     what was saved and what could not be
+                     what was saved and what could not be, the checks on the studies, the PRISMA-S
+                     items, a methods paragraph and the automated steps to report
+    PRISMA flow diagram.svg
+                     the PRISMA 2020 flow diagram with the numbers of the search filled in
     Papers/          a search for studies: the open PDFs that could be fetched, named author_year_title
     Datasets/        a search for datasets: one folder per dataset with its open data files
 ```
@@ -117,6 +123,24 @@ limited to the files the app creates (`drive.file`).
    and a CSV or RIS export, puts all three into the columns "Study design (automatic tag)", "Retraction or
    correction" and "Replications (FReD)" and into notes (N1) in the RIS file, and "Search details" counts them.
    Settings can turn the Crossref check off.
+8. **Review tools.** "Check your search" looks up pasted DOIs, PubMed IDs or OpenAlex IDs of studies the search should
+   find (OpenAlex filters `doi:`, `pmid:`, `openalex:`, 100 to a request at 1 credit), then runs each part of the
+   search restricted to those works (`filter=openalex:…` with the same filters, a search: 10 credits per part per 100
+   works) and reports relative recall with a 95% Wilson interval; for each study it misses it gives the probable
+   reason, worked out on the page from its title and abstract (a keyword with none of its terms present, a filter, no
+   abstract in OpenAlex). "Citation search" takes the same kind of list and collects the works they cite
+   (`referenced_works`, resolved 100 to a request) and the works citing them (`cites:`, newest first, up to 2,000,
+   200 to a request), each once, with how each is linked to the starting studies; it can be exported or saved to Drive
+   with a "Search details" that reports it as the TARCiS statement asks. "What your results cite most" reads the
+   references of the 200 best-matching results of each part of the search, counts the works they cite, and checks
+   whether the search finds the 50 cited most. A check of the search is written into "Search details" when the search
+   is saved.
+9. **Reporting.** "Search details" also has the 16 PRISMA-S items, filled in where Research Finder knows the answer
+   and marked [to complete] where it does not, a methods paragraph to adapt, and the automated steps a review should
+   disclose (term suggestions, machine translation, ranking, design tags, deduplication). Each save adds "PRISMA flow
+   diagram.svg", the PRISMA 2020 flow diagram for new reviews with the records the search found filled in, the
+   duplicates within the search when all results were saved, and the records from a citation search of the same visit;
+   every other box is left as (n = …). Export › PRISMA 2020 flow diagram gives the same diagram without a save.
 
 ### Limits
 
@@ -190,11 +214,12 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation of the terms), `translate.js` (English for results in other languages: which language a title is in,
 the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `checks.js`
-(study designs, retractions and corrections from Crossref, replications from FReD), `drive.js`
+(study designs, retractions and corrections from Crossref, replications from FReD), `review.js` (checking the search
+against known studies, citation searching, what the results cite, the PRISMA flow diagram), `drive.js`
 (Google sign-in and the folder structure), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=35`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=36`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

@@ -13,9 +13,9 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=35">
-  <script type="module" src="js/main.js?v=35"></script>
-  <script type="module" src="js/landing.js?v=35"></script>
+  <link rel="stylesheet" href="style.css?v=36">
+  <script type="module" src="js/main.js?v=36"></script>
+  <script type="module" src="js/landing.js?v=36"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -148,7 +148,8 @@
               <li><h4>Records ready for screening</h4><p>Every record with its abstract, each study once: a Google Sheet for your team and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote.</p></li>
               <li><h4>Retractions, designs and replications marked</h4><p>Retracted, withdrawn and corrected studies are flagged from Crossref and Retraction Watch, trials, observational studies and reviews carry OpenAlex’s design tags, and studies with replication attempts list them.</p></li>
               <li><h4>Full texts and data for coding</h4><p>A link to every open PDF, the files themselves where they can be fetched, and open datasets for effect sizes a paper does not report.</p></li>
-              <li><h4>The search, documented</h4><p>Sources, date, every term and translation, filters, the exact queries and the record counts: what PRISMA 2020 items 6 and 7 ask for. Run the same queries again to update the review.</p></li>
+              <li><h4>The search, checked</h4><p>Paste studies the search should find and see which it misses, and why: its relative recall. Search the citations of your included studies, backward and forward, and find the studies your results cite that the search does not.</p></li>
+              <li><h4>The search, documented</h4><p>Sources, date, every term and translation, filters, the exact queries and the record counts, the PRISMA-S items, a methods paragraph, what was automated, and a PRISMA 2020 flow diagram with the numbers filled in.</p></li>
               <li><h4>A head start in your other databases</h4><p>Copy the Boolean string to adapt for Scopus, Web of Science or PsycINFO, or open it in PubMed, Google Scholar or BASE.</p></li>
             </ul>
           </div>
@@ -405,6 +406,10 @@ ER  - </code></pre>
             <p>Yes. A title in another language comes with an automatic English translation in [brackets], and “English translation” under its abstract translates the whole abstract. They come from Wikimedia’s open machine translation, MinT, and the page labels each one as an automatic translation, not a professional one: good for a first look, not for quoting. Each title’s translation is translated back as a check, and one that has almost nothing in common with the original is not shown. Read the original, or ask someone who reads the language, before you include or exclude a study. You can turn the translations off under Settings.</p>
           </details>
           <details>
+            <summary>Can it check my search, or search citations?</summary>
+            <p>Yes, under Review tools above the results. “Check your search” takes studies you know the search should find, by DOI or PubMed ID, and shows which ones it retrieves, its relative recall, and for each one it misses the probable reason: a missing term, a filter, or no abstract in OpenAlex. “Citation search” finds the references of your included studies and the studies that cite them, from OpenAlex’s citation index, and saves them with a record of what was searched. “What your results cite most” lists the works your best-matching results cite, and marks the ones your search misses: often key studies worded differently.</p>
+          </details>
+          <details>
             <summary>Does it show retracted studies and replications?</summary>
             <p>Yes. A study that was retracted, withdrawn, corrected or given an expression of concern is marked, with the date and a link to the notice, from Crossref’s update notices, which include the Retraction Watch database; where Crossref has none, OpenAlex’s own retraction flag is used. Studies that the FORRT Replication Database lists, most of them in psychology, show their replication attempts and outcomes. Both also go into the saved sheet and the RIS file. A study without a mark can still be flawed, and one FORRT does not list may still have been replicated.</p>
           </details>
@@ -434,7 +439,7 @@ ER  - </code></pre>
           </details>
           <details>
             <summary>How do I report a search made with it, and cite it?</summary>
-            <p>Each saved folder has the document “Search details”: the sources, the date, every term and translation, the filters, the exact queries and the number of records. That is the material for a methods section and a search appendix. The citation for Research Finder is below.</p>
+            <p>Each saved folder has the document “Search details”: the sources, the date, every term and translation, the filters, the exact queries and the number of records, the PRISMA-S items filled in where Research Finder knows them, a methods paragraph to adapt, and the automated steps to disclose. Next to it is a PRISMA 2020 flow diagram with the numbers of the search filled in and the rest left for you. The citation for Research Finder is below.</p>
           </details>
         </div>
        </div>
@@ -492,6 +497,16 @@ ER  - </code></pre>
         <button type="button" class="btn btn-ghost" id="save-close">Close</button>
       </div>
       <div id="save-body"></div>
+    </div>
+  </dialog>
+
+  <dialog id="tools" aria-labelledby="tools-title">
+    <div class="dialog-inner">
+      <div class="panel-head">
+        <h2 id="tools-title">Review tools</h2>
+        <button type="button" class="btn btn-ghost" id="tools-close">Close</button>
+      </div>
+      <div id="tools-body"></div>
     </div>
   </dialog>
 

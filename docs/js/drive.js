@@ -10,7 +10,7 @@
        Search details     Google Doc: where and how the search was made (keywords, every term, filters, the queries)
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset */
-import { CONFIG } from "../config.js?v=35";
+import { CONFIG } from "../config.js?v=36";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -256,8 +256,9 @@ const FILES_HEADER = ["Result no.", "Result", "File", "Size (MB)", "Repository",
    (copy: false when its repository does not let browsers download it and no file relay is connected: listed only;
    urls: the addresses to try in turn, some of them through the file relay; source: the file's own address); rows: the
    CSV's data rows, one per result (the "Saved in Drive" column is added here); ris: the same results as a RIS file, for
-   reference managers and screening tools. onSignIn: called when the sign-in runs out; resolves once connected again. */
-export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
+   reference managers and screening tools. extras: other files for the folder, [{ name, type, text }]. onSignIn: called
+   when the sign-in runs out; resolves once connected again. */
+export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, extras = [], maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
   signIn = onSignIn;
   try {
     const root = await appFolder();
@@ -289,6 +290,7 @@ export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, 
     onProgress("Writing the search details…");
     const html = typeof detailsHtml === "function" ? detailsHtml({ papers, dataFiles, bytes, failed, relayed }) : detailsHtml;
     const doc = await upload({ name: "Search details", mimeType: DOC, parents: [folder.id] }, new Blob([html], { type: "text/html" }));
+    for (const x of extras) await upload({ name: x.name, parents: [folder.id] }, new Blob([x.text], { type: x.type }));
     return { folder: folder.webViewLink, sheet: sheet.webViewLink, files: files && files.webViewLink, doc: doc.webViewLink,
       papers, dataFiles, bytes, failed, relayed, csv };
   } finally {

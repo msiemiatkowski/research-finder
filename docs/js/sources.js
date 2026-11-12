@@ -3,8 +3,8 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=35";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=35";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=36";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=36";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
@@ -121,8 +121,10 @@ function fromOpenAlex(w) {
     keywords: (w.keywords || []).map((k) => k.display_name).slice(0, 8), abstract: snippet(full, 400), full,
     open: !!(w.open_access || {}).is_oa, cited: w.cited_by_count || 0,
     retracted: Boolean(w.is_retracted), designs: (w.study_designs || []).map((d) => String(d.id || "").split("/").pop()).filter(Boolean),
+    oa: oaId(w.id), refs: (w.referenced_works || []).map(oaId), pmid: oaId(((w.ids || {}).pmid) || ""),
   };
 }
+const oaId = (url) => String(url || "").split("/").pop();
 
 /* Titles and abstracts, or with full texts too. */
 function openalexQuery({ filters, sort }, search) {
@@ -247,7 +249,79 @@ export const studies = {
         .filter((r) => !seen.has(r.key) && seen.add(r.key));
     }
   },
+  /* Which of these works (OpenAlex IDs) the search finds, with its filters: one search per part of the query for each
+     100 works (each a search: 10 credits). */
+  async matches(q, ids) {
+    const found = new Set();
+    for (const search of studies.queries(q).parts) {
+      for (let i = 0; i < ids.length; i += 100) {
+        const p = openalexQuery(q, search);
+        p.set("filter", [p.get("filter"), `openalex:${ids.slice(i, i + 100).join("|")}`].filter(Boolean).join(","));
+        p.set("per-page", "100");
+        p.set("select", "id");
+        const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 30000 });
+        for (const w of j.results || []) found.add(oaId(w.id));
+      }
+    }
+    return found;
+  },
+  /* The references of the best-matching results: up to 200 from each part of the search (one search each). */
+  async references(q) {
+    const works = new Map();
+    for (const search of studies.queries(q).parts) {
+      const p = openalexQuery({ ...q, sort: "rel" }, search);
+      p.set("per-page", "200");
+      p.set("select", "id,referenced_works");
+      const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 60000 });
+      for (const w of j.results || []) works.set(oaId(w.id), (w.referenced_works || []).map(oaId));
+    }
+    return works;
+  },
 };
+
+/* ------------------------------------------------------------------ OpenAlex: works by identifier, and their citations */
+const WORK_FIELDS = `${OA_FIELDS},referenced_works,ids`;
+
+/* Works by DOI, PubMed ID or OpenAlex ID, 100 to a request (a list, 1 credit: a tenth of a search). */
+export async function worksByIds({ dois = [], pmids = [], ids = [] }) {
+  const out = [];
+  for (const [field, list] of [["doi", dois], ["pmid", pmids], ["openalex", ids]]) {
+    for (let i = 0; i < list.length; i += 100) {
+      const p = openalexParams();
+      p.set("filter", `${field}:${list.slice(i, i + 100).join("|")}`);
+      p.set("per-page", "100");
+      p.set("select", WORK_FIELDS);
+      const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 30000 });
+      out.push(...(j.results || []).map(fromOpenAlex));
+    }
+  }
+  return out;
+}
+
+/* Works that cite any of these works (OpenAlex IDs), the newest first, 200 to a request (1 credit), up to `max`.
+   `total`: how many there are (a work citing two groups of 100 counts twice). */
+export async function citingWorks(ids, max = 2000, onProgress = () => {}) {
+  const out = new Map();
+  let total = 0;
+  for (let i = 0; i < ids.length; i += 100) {
+    const group = ids.slice(i, i + 100);
+    for (let page = 1; ; page++) {
+      const p = openalexParams();
+      p.set("filter", `cites:${group.join("|")}`);
+      p.set("sort", "publication_date:desc");
+      p.set("per-page", "200");
+      p.set("page", String(page));
+      p.set("select", WORK_FIELDS);
+      const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 60000 });
+      if (page === 1) total += j.meta.count;
+      for (const w of j.results || []) if (out.size < max) out.set(oaId(w.id), fromOpenAlex(w));
+      onProgress(out.size, Math.min(total, max));
+      if (out.size >= max || !(j.results || []).length || page * 200 >= Math.min(j.meta.count, 10000)) break;
+    }
+    if (out.size >= max) break;
+  }
+  return { works: [...out.values()], total };
+}
 
 /* ------------------------------------------------------------------ data repositories */
 const val = (x) => ((x || [])[0] || {})["@value"] || "";

@@ -1,14 +1,15 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=35";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=35";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=35";
+import { CONFIG } from "../config.js?v=36";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=36";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=36";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=35";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=36";
 import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle, englishTitles,
-  SAVE_TRANSLATIONS } from "./translate.js?v=35";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=35";
+  SAVE_TRANSLATIONS } from "./translate.js?v=36";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=36";
 import { DESIGN_NAMES, designsOf, designText, checksOn, checkUpdates, updatesOf, updatesText, SERIOUS, loadReplications, replicationsDate,
-  replicationsOf, replicationText, replicationsCell } from "./checks.js?v=35";
+  replicationsOf, replicationText, replicationsCell } from "./checks.js?v=36";
+import { openTools, prismaSvg, checkHtml } from "./review.js?v=36";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
@@ -485,7 +486,13 @@ function renderToolbar(status) {
       results.length ? menu("Export ▾", [
         ["Spreadsheet (CSV)", exportCsv],
         ["References (RIS) for Zotero, EndNote, Rayyan, Covidence or ASReview", exportRis],
-      ], "Download the results shown, with their abstracts") : null));
+        ["PRISMA 2020 flow diagram (SVG), with the numbers of this search", exportPrisma],
+      ], "Download the results shown, with their abstracts") : null,
+      results.length && !data ? menu("Review tools ▾", [
+        ["Check your search against studies it should find", () => openTools("check", toolsCtx)],
+        ["Citation search from your studies", () => openTools("chase", toolsCtx)],
+        ["What your results cite most", () => openTools("cited", toolsCtx)],
+      ], "Check the search, search citations, and find key studies the search misses") : null));
   const settings = (label) => h("button", { type: "button", class: "btn btn-small", onclick: openSettings }, label);
   const msgs = notes.map((text) => ({ text, warn: true }));
   if (extra.dropped && !data) {
@@ -580,13 +587,14 @@ function risOf(records, en = translationsOn(), checks = state.tab === "studies")
   ].join("")).join("\r\n");
 }
 
-function downloadFile(name, text, type) {
+function downloadFile(name, text, type, message) {
   const a = h("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
   document.body.append(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  toast(`Exported ${plural(results.length, "result")}${more ? ", the ones loaded so far (Save to Google Drive can save all of them)" : ""}`, 4000);
+  toast(message || `Exported ${plural(results.length, "result")}${more ? ", the ones loaded so far (Save to Google Drive can save all of them)" : ""}`, 4000);
 }
+const csvCell = (v) => { const s = String(v == null ? "" : v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const fileDate = () => new Date().toISOString().slice(0, 10);
 
 /* Before an export, the English of the titles in other languages among the results shown (most are translated already). */
@@ -610,6 +618,55 @@ async function exportCsv() {
   const csv = [header(en, checks), ...results.map((r, i) => rowOf(r, i, en, checks))].map((r) => r.map(cell).join(",")).join("\r\n");
   downloadFile(`research-finder-${fileDate()}.csv`, "﻿" + csv, "text/csv;charset=utf-8");
 }
+/* ------------------------------------------------------------------ review tools and the flow diagram */
+/* What the review tools found in this visit, each with the search it belongs to (for "Search details"). */
+const review = {};
+const searchSignature = () => `${state.tab}|${state.mode}|${JSON.stringify(state.filters)}|${state.tab === "studies" ? SOURCES.studies.queries(query()).parts.join(" || ") : ""}`;
+
+const toolsCtx = {
+  query, link, results: () => results,
+  remember(kind, res) { review[kind] = { ...res, signature: searchSignature() }; },
+  async exportRecords(records, { extraName, extraOf, name, format }) {
+    await englishFirst(records);
+    await checksFirst(records);
+    const en = translationsOn(), message = `Exported ${plural(records.length, "study", "studies")}`;
+    if (format === "ris") { downloadFile(`${name}-${fileDate()}.ris`, risOf(records, en, true), "application/x-research-info-systems", message); return; }
+    const rows = [[...header(en, true), extraName], ...records.map((r, i) => [...rowOf(r, i, en, true), extraOf(r)])];
+    downloadFile(`${name}-${fileDate()}.csv`, "﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n"), "text/csv;charset=utf-8", message);
+  },
+  async saveRecords({ title, records, extraName, extraOf, details, progress }) {
+    if (!driveConfigured()) throw new Error("saving to Google Drive is not set up on this copy of the site");
+    if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
+    const english = translationsOn()
+      ? await englishTitles(records, { onProgress: (n, of) => progress(`Translating the titles in other languages into English: ${fmt(n)} of ${fmt(of)}…`) }) : null;
+    await checkAll(records, progress);
+    const en = Boolean(english);
+    return saveSearch({
+      title: `${title} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
+      header: [...header(en, true), extraName], rows: records.map((r, i) => [...rowOf(r, i, en, true), extraOf(r)]),
+      ris: risOf(records, en, true), jobs: [], maxFile: 0, maxTotal: 0, onProgress: progress,
+      detailsHtml: () => details(checksHtml(checkStats(records))), onSignIn: () => connect(),
+    });
+  },
+};
+
+/* The numbers of the PRISMA 2020 flow diagram that this search gives: the records each source found, the duplicates
+   removed within the search when all of them were saved, and the citation search of this visit. Nothing is guessed. */
+function prismaCounts(nRows = null, savedAll = false, gotNotes = []) {
+  const studies = state.tab === "studies";
+  const complete = savedAll && nRows != null && !gotNotes.length;
+  return {
+    date: new Date().toISOString().slice(0, 10),
+    databases: studies ? [["OpenAlex", total]] : Object.entries(extra.totals || {}),
+    registers: null, duplicates: complete ? Math.max(0, total - nRows) : null, otherRemoved: null, screened: null,
+    citation: review.chase ? review.chase.records.length : null,
+  };
+}
+function exportPrisma() {
+  downloadFile(`prisma-flow-diagram-${fileDate()}.svg`, prismaSvg(prismaCounts()), "image/svg+xml",
+    "Flow diagram downloaded: the records this search found are filled in; fill in the rest after screening.");
+}
+
 async function exportRis() {
   await englishFirst(results);
   await checksFirst(results);
@@ -654,7 +711,8 @@ function openSave() {
         translationsOn() ? ", and an automatic English translation of titles in other languages" : ""),
       h("li", {}, h("strong", {}, "Results.ris"), " — the same results as a reference file, to import into Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview"),
       h("li", {}, h("strong", {}, "Files"), " — a Google Sheet with every file found: its download link, and whether it was saved (and if not, why)"),
-      h("li", {}, h("strong", {}, "Search details"), " — a document with your keywords, every term and translation used, the filters and the exact queries, so the search can be repeated"),
+      h("li", {}, h("strong", {}, "Search details"), " — a document with your keywords, every term and translation used, the filters and the exact queries, so the search can be repeated, with the PRISMA-S items, a methods paragraph and the automated steps to report"),
+      h("li", {}, h("strong", {}, "PRISMA flow diagram.svg"), " — the PRISMA 2020 flow diagram with the numbers of this search filled in, the rest for you to fill"),
       studiesTab ? h("li", {}, h("strong", {}, "Papers/"), " — the open PDFs (also open versions found through Semantic Scholar, such as arXiv preprints)")
         : h("li", {}, h("strong", {}, "Datasets/"), " — one folder per dataset with its open data files")),
     h("p", { class: "save-row" }, h("label", { for: "save-count" }, "Save "), howMany, h("span", {}, ` of ${fmt(total)} results`)),
@@ -770,7 +828,8 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     const res = await saveSearch({
       title, header: header(Boolean(english), checks), rows: rows.map((r, i) => rowOf(r, i, Boolean(english), checks)), ris: risOf(rows, Boolean(english), checks), jobs, maxFile,
       maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
-      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes, english, checks ? checkStats(rows) : null),
+      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes, english, checks ? checkStats(rows) : null, count >= total),
+      extras: [{ name: "PRISMA flow diagram.svg", type: "image/svg+xml", text: prismaSvg(prismaCounts(rows.length, count >= total, gotNotes)) }],
       onSignIn: () => new Promise((resolve, reject) => {
         fill($("#save-signin"), h("p", { class: "note warn" }, "Google's sign-in has run out (it lasts an hour). "),
           h("button", { type: "button", class: "btn btn-small btn-primary", onclick: async () => {
@@ -967,7 +1026,79 @@ function checksHtml(c) {
 <p><b>Replications</b> (column “Replications (FReD)”). ${fmt(c.replicated)} of the studies saved have replications or reproductions recorded in the FORRT Replication Database (FReD; CC BY 4.0; data of ${esc(c.date || "unknown date")}), which lists about 2,600 findings, most of them from psychology: a study it does not list may still have been replicated.</p>`;
 }
 
-function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks = null) {
+/* For "Search details": the citation search of this visit, which is saved on its own. */
+function chaseNote(c) {
+  return `<h2>Citation searching</h2>
+<p>On ${esc(dateText(c.date))}, a citation search in OpenAlex from ${plural(c.seeds.length, "study", "studies")} (${[c.back ? "their references" : "", c.forward ? "the studies that cite them" : ""].filter(Boolean).join(" and ")}) found ${plural(c.records.length, "study", "studies")}. It is not in this folder: save it from Review tools › Citation search, which gives it a folder with its own “Search details”.</p>`;
+}
+
+/* For "Search details": the PRISMA 2020 numbers, the PRISMA-S items, a methods paragraph and the automated steps to
+   disclose, from what this search actually did. Placeholders in [brackets] are for the reviewers to complete. */
+function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
+  const f = state.filters, studies = state.tab === "studies";
+  const day = dateText(new Date().toISOString().slice(0, 10));
+  const groups = state.groups.map((g) => ({ g, used: activeTerms(g, state.langsOff) })).filter((x) => x.used.length);
+  const used = groups.flatMap((x) => x.used);
+  const machine = used.filter((t) => isTranslation(t) && t.src === "mt").length;
+  const langs = new Set(used.filter(isTranslation).map((t) => t.lang));
+  const mined = used.filter((t) => t.src === "variant").length;
+  const added = used.filter((t) => ["similar", "studies"].includes(t.src)).length;
+  const doubted = groups.reduce((s, x) => s + x.g.terms.filter((t) => t.doubt && !t.on).length, 0);
+  const c = prismaCounts(nRows, savedAll, gotNotes);
+  const limits = filters.join("; ");
+  const ref = citation();
+  const check = studies && review.check && review.check.signature === searchSignature() ? review.check : null;
+  const sources = studies ? "OpenAlex (https://openalex.org)" : "DataCite, Zenodo, Harvard Dataverse, OSF (through its SHARE index) and OpenAIRE";
+  const concepts = groups.map((x) => `“${esc(x.g.label)}” (${plural(x.used.length, "term")})`).join(state.mode === "all" ? " AND " : " OR ");
+  const methods = `We searched ${esc(sources)} on ${esc(day)} with Research Finder, which sends the search to ${studies ? "the OpenAlex API" : "the repositories' APIs"}. `
+    + (groups.length > 1 ? `The search combined ${plural(groups.length, "concept")}, ${state.mode === "all" ? "all of which had to match" : "any of which could match"}: ${concepts}. ` : `The search used one concept, ${concepts}. `)
+    + `${groups.length > 1 ? "The terms for each concept were" : "Its terms were"} our own words${mined ? `, the other wordings used in the ${SAMPLE} studies in OpenAlex that match it best` : ""}, synonyms from Wikidata${added ? ", related phrases we chose from those suggested" : ""}`
+    + `${langs.size ? `, and translations into ${plural(langs.size, "language")} from Wikidata and Wikimedia's machine translation service MinT, each machine translation checked by translating it back into English` : ""}. `
+    + `They were searched in ${f.fulltext ? "titles, abstracts and full texts" : "titles and abstracts"}. ${limits ? `Limits: ${esc(limits)}. ` : "No limits were applied. "}`
+    + `The full strategy, with every term and the exact queries, is in [Supplementary file]. `
+    + `The search found ${fmt(total)} records${c.duplicates != null ? `; after ${fmt(c.duplicates)} duplicates within the search were removed, ${fmt(nRows)} were exported for screening` : `, of which ${fmt(nRows)} were exported for screening`}`
+    + `${check ? `. It retrieved ${fmt(check.hit.length)} of ${plural(check.works.length, "known eligible study", "known eligible studies")} that are in OpenAlex` : ""}.`;
+  const prismaS = [
+    ["Database name", studies ? "OpenAlex, searched through its API with Research Finder." : "DataCite, Zenodo, Harvard Dataverse, OSF (SHARE index) and OpenAIRE, searched through their APIs with Research Finder."],
+    ["Multi-database searching", studies ? "Not applicable: OpenAlex is one index, which draws its records from Crossref, PubMed, repositories and other sources." : "Each repository was searched on its own and the results were put together, each dataset once."],
+    ["Study registries", "[To complete: registries searched, such as ClinicalTrials.gov or PROSPERO.]"],
+    ["Online resources and browsing", "[To complete: websites, conference proceedings or tables of contents browsed, and how.]"],
+    ["Citation searching", review.chase ? `Backward and forward citation searching in OpenAlex from ${plural(review.chase.seeds.length, "study", "studies")} on ${dateText(review.chase.date)}, with Research Finder.` : "[To complete, for example with Review tools › Citation search.]"],
+    ["Contacts", "[To complete: authors, experts or others contacted.]"],
+    ["Other methods", "[To complete.]"],
+    ["Full search strategies", "“Keywords” and “Queries sent” above: every term and translation, and each query exactly as sent."],
+    ["Limits and restrictions", `${limits ? esc(limits) : "None."} [Give the reason for each limit.]`],
+    ["Search filters", f.designs.length ? `OpenAlex's automatic study-design tags (not a validated search filter): ${esc(f.designs.map((d) => DESIGN_NAMES[d]).join(", "))}.` : "None."],
+    ["Prior work", "[To complete: searches of earlier reviews that were adapted.]"],
+    ["Updates", "[To complete: for example, the search run again from the link at the end of this document.]"],
+    ["Dates of searches", esc(day)],
+    ["Peer review", "[To complete: for example, a PRESS peer review of the strategy.]"],
+    ["Total records", `${studies ? "OpenAlex" : "The repositories"}: ${fmt(total)}${c.duplicates != null ? `; ${fmt(nRows)} after duplicates within the search were removed` : `; ${fmt(nRows)} saved`}.`],
+    ["Deduplication", "Within this search, each record was kept once by its DOI or OpenAlex ID. [Describe how duplicates across all databases were removed, and with which software.]"],
+  ];
+  const steps = [
+    `<li><b>Term suggestions.</b> Wordings counted in the titles and abstracts of the ${SAMPLE} studies in OpenAlex that match each keyword best (a rule-based count, no AI model)${mined ? `: ${fmt(mined)} were searched` : ""}; synonyms from Wikidata. Every term was shown, and the reviewers could switch any of them off.</li>`,
+    machine ? `<li><b>Machine translation of the terms.</b> ${fmt(machine)} terms translated by Wikimedia's MinT (open neural machine translation models) on ${esc(day)}, each translated back into English as a check${doubted ? `; ${fmt(doubted)} that did not come back with the same meaning were left out` : ""}. [Say whether someone who reads the language checked them.]</li>` : "",
+    `<li><b>Ranking.</b> ${studies ? "OpenAlex's" : "The repositories'"} relevance order${savedAll ? ": all results were saved, so it did not decide which records were kept" : `: only the first ${fmt(nRows)} in that order were saved`}.</li>`,
+    studies ? `<li><b>Study designs.</b> OpenAlex's automatic tags (a classifier reading the title and abstract; at least 96% precision by OpenAlex's benchmark, recall not reported) were shown${f.designs.length ? " and used as a filter" : ""}.</li>` : "",
+    english && english.shown ? `<li><b>Machine translation of titles.</b> ${fmt(english.shown)} titles in other languages translated into English by MinT and checked by back-translation, to help screening.</li>` : "",
+    check ? `<li><b>Validation.</b> The search was checked against ${plural(check.works.length, "known study", "known studies")} (see “Search validation”).</li>` : "",
+    `<li><b>Deduplication</b> within the search by exact DOI or OpenAlex ID.</li>`,
+  ].filter(Boolean).join("");
+  return `<h2>PRISMA 2020 flow diagram</h2>
+<p>“PRISMA flow diagram.svg” in this folder is the PRISMA 2020 flow diagram with the numbers this search gives: records identified from ${esc(c.databases.map(([n, v]) => `${n} (n = ${fmt(v)})`).join(", "))}${c.duplicates != null ? `, and ${fmt(c.duplicates)} duplicate records removed within the search` : ""}${c.citation != null ? `, and ${fmt(c.citation)} records from the citation search` : ""}. The other boxes show (n = …), to fill in after screening.${c.duplicates == null ? " Duplicates are not counted because not all results were saved." : ""} If you searched other databases too, add their records and count duplicates across all of them.</p>
+<h2>Reporting the search (PRISMA-S)</h2>
+<table border="1" cellpadding="5" cellspacing="0"><tr><th>Item</th><th>What to report</th></tr>${prismaS.map(([item, text], i) => `<tr><td>${i + 1}. ${esc(item)}</td><td>${text}</td></tr>`).join("")}</table>
+<h2>Methods paragraph</h2>
+<p>To adapt for a methods section:</p>
+<p>${methods}</p>${ref ? `<p>Reference: ${esc(ref)}</p>` : ""}
+<h2>Use of automation and AI</h2>
+<p>The 2025 position statement of Cochrane, the Campbell Collaboration, JBI and the Collaboration for Environmental Evidence asks reviews to report automation that makes or suggests judgements. In this search:</p>
+<ul>${steps}</ul>
+<p>None of these steps included or excluded a study. [Add how the reviewers checked the suggested terms and translations.]</p>`;
+}
+
+function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks = null, savedAll = false) {
   const f = state.filters, src = SOURCES[state.tab];
   const when = new Date();
   const filters = [
@@ -1025,6 +1156,9 @@ ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
 ${english && english.foreign ? `<h2>Titles in other languages</h2>
 <p>${fmt(english.foreign)} of the results saved have a title in another language. ${fmt(english.shown)} of them have an automatic English translation in the column “${EN_TITLE}” of “Results”, and in a note in “Results.ris”, made by Wikimedia's open machine translation (MinT) and checked by translating it back into the original language${english.failed ? `; ${fmt(english.failed)} did not pass that check and have none` : ""}${english.same ? `; ${fmt(english.same)} needed none, as their title says it in English too` : ""}${english.missing ? `; ${fmt(english.missing)} were not translated, because MinT did not answer or a save translates at most ${fmt(SAVE_TRANSLATIONS)}` : ""}. These are machine translations, not professional ones: use them to see what a study is about, and the original titles to screen and to cite.</p>` : ""}
 ${checks ? checksHtml(checks) : ""}
+${state.tab === "studies" && review.check && review.check.signature === searchSignature() ? checkHtml(review.check, esc) : ""}
+${review.chase ? chaseNote(review.chase) : ""}
+${reportingHtml(nRows, savedAll, gotNotes, english, checks, filters)}
 <p>Repeat the search: ${esc(location.href)}</p>
 </body></html>`;
 }
@@ -1225,6 +1359,8 @@ function renderAbout() {
     h("p", {}, "A title in another language is shown with an automatic English translation in [brackets], and “English translation” under its abstract translates the abstract, both by Wikimedia's MinT. Each title's translation is translated back into the original language as a check: one that has almost nothing in common with the original, as machine translation sometimes writes for a short title, is not shown. They are machine translations, not professional ones, for a first look at what a study is about; Settings can turn them off."),
     h("h3", {}, "Checks on the studies"),
     h("p", {}, "Each study shows the design OpenAlex tags automatically from its title and abstract (randomized controlled trial, observational study, systematic review, meta-analysis, study protocol and others), and the filter “Study design” finds them; the tags are rarely wrong, but many studies have none. Studies that were retracted, withdrawn, corrected or given an expression of concern are marked, from Crossref's update notices, which include the Retraction Watch database. Studies with replication attempts recorded in the FORRT Replication Database, most of them in psychology, list them with their outcomes."),
+    h("h3", {}, "Review tools"),
+    h("p", {}, "“Check your search” takes studies the search should find, such as known eligible studies, and shows which ones it retrieves (its relative recall) and why it misses the others. “Citation search” finds the references of your included studies and the studies that cite them, in OpenAlex's citation index. “What your results cite most” lists the works your best-matching results cite most often and marks the ones your search does not find."),
     h("h3", {}, "What is saved"),
     h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source, each study's design tag, retractions and corrections, and replications, and an automatic English translation of titles in other languages), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
     h("h3", {}, "Reporting a search"),
@@ -1234,7 +1370,8 @@ function renderAbout() {
       h("li", {}, "the date of the search;"),
       h("li", {}, "every term and translation, and the exact queries sent;"),
       h("li", {}, "the limits: where in the records it searched, and the years, types and languages chosen;"),
-      h("li", {}, "the number of records found and saved, for the flow diagram.")),
+      h("li", {}, "the number of records found and saved, with a PRISMA 2020 flow diagram filled in as far as the search goes;"),
+      h("li", {}, "the PRISMA-S items, a methods paragraph to adapt, and the automated steps to report.")),
     citation() ? h("p", {}, "Cite Research Finder as: ", citation(true)) : null,
     h("h3", {}, "Your Google Drive"),
     h("p", {}, "Connecting your Drive is optional. Research Finder asks Google only for access to the files it creates: it cannot see anything else in your Drive. Files are downloaded by your browser and go straight into your Drive. Some publishers and repositories (OSF, figshare) do not let browsers download files; those are listed with their download links, or, if you connect a file relay under Settings, copied through it."),
@@ -1330,6 +1467,7 @@ $("#drive-btn").addEventListener("click", async () => {
 });
 $("#settings-btn").addEventListener("click", openSettings);
 $("#earlier-close").addEventListener("click", () => $("#earlier").close());
+$("#tools-close").addEventListener("click", () => $("#tools").close());
 $("#save-close").addEventListener("click", () => $("#save").close());
 $("#search-form").addEventListener("submit", (e) => { e.preventDefault(); setQuery($("#q").value); });
 document.querySelectorAll(".example").forEach((b) => b.addEventListener("click", () => {
