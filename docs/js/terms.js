@@ -7,7 +7,7 @@
    - machine translations of the English terms into the 39 languages (Wikimedia's MinT), each checked by translating
      it back into English.
    Every term can be switched on or off; translations follow the chosen search languages. */
-import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=36";
+import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=37";
 
 export const LANG_NAMES = {
   pl: "Polish", de: "German", fr: "French", es: "Spanish", pt: "Portuguese", it: "Italian", nl: "Dutch", sv: "Swedish",

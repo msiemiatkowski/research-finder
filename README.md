@@ -24,13 +24,16 @@ science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; 
   were retracted, withdrawn, corrected or given an expression of concern are flagged (Crossref, with the Retraction
   Watch database); OpenAlex's study-design tags (randomized controlled trial, observational study, systematic review,
   meta-analysis, study protocol and others) are shown and can be filtered on; and studies with replication attempts
-  in the FORRT Replication Database list them with their outcomes. Review tools check the search against studies it
-  should find (relative recall, and why each miss happened), search the citations of the included studies backward
-  and forward, and list the works the results cite most that the search misses; "Search details" adds the PRISMA-S
-  items, a methods paragraph and the automated steps to report, next to a pre-filled PRISMA 2020 flow diagram.
+  in the FORRT Replication Database list them with their outcomes. Review tools start from "your studies" (added
+  from the results or pasted): they check the search against them (relative recall, and why each miss happened),
+  search their citations backward and forward, find studies similar to them ("More like these"), and list the works
+  the results cite most that the search misses; "Search details" adds the PRISMA-S items, a methods paragraph and the
+  automated steps to report, next to a pre-filled PRISMA 2020 flow diagram. A saved search can be run again with the
+  same queries, adding only the new records to its folder (MECIR C37 asks for searches less than 12 months old).
 - **Literature reviews.** How many studies each keyword has, existing reviews (Review filter), the most cited and the
-  newest work, related phrases and the topics most often studied with yours, every abstract in one sheet and a
-  RIS file for a reference manager.
+  newest work, related phrases and the topics most often studied with yours, every abstract in one sheet, references
+  in more than 2,700 citation styles, RIS, BibTeX and CSL-JSON files for reference managers, COinS for the Zotero
+  Connector, and links through the visitor's own library (OpenURL link resolver or proxy) to paywalled studies.
 - **Secondary data analysis.** DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE at once, with the open data
   files saved into one Drive folder per dataset and a sheet listing every file.
 - **Cross-cultural research.** Studies published in other languages, such as validation studies of adapted
@@ -57,16 +60,29 @@ Research Finder/
                      items, a methods paragraph and the automated steps to report
     PRISMA flow diagram.svg
                      the PRISMA 2020 flow diagram with the numbers of the search filled in
+    Research Finder search.json
+                     the search (exact queries, terms, filters) and the identifiers of the results saved,
+                     so that the search can be run again
     Papers/          a search for studies: the open PDFs that could be fetched, named author_year_title
     Datasets/        a search for datasets: one folder per dataset with its open data files
+    New results <date and time>, .ris, (files)
+                     each time the search is run again: only the records the folder did not have
 ```
 
-Files a save did not copy (a site that does not let browsers download them, a size limit, an interruption) can be
-added to it later: Settings > "Earlier saves" lists the searches saved in the folder, reads a save's "Files" sheet,
-tries those files again (through a file relay where one helps), puts the new ones into the save's own folders and
-updates "Files", the "Saved in Drive" column of "Results" and "Search details".
+Settings > "Earlier saves" lists the searches saved in the folder. "Run it again and add what is new" runs a save's
+exact queries again with the same filters (from "Research Finder search.json"; for saves made before 12 November 2026,
+from the queries in its "Search details" and the filters in its link), collects all the results, and adds only those
+the folder did not have (matched by DOI, OpenAlex ID and link, or title and year for older saves) as "New results",
+with their open files; it notes the run in "Search details" (records found, new, no longer found, and the studies
+saved before that Crossref now marks as retracted, withdrawn or with an expression of concern) and updates the
+record. A calendar file (`.ics`) can remind the visitor every month for a year; its link (`#earlier`) opens Earlier
+saves. Files a save did not copy (a site that does not let browsers download them, a size limit, an interruption) can
+also be added later: it reads a save's "Files" sheet, tries those files again (through a file relay where one helps),
+puts the new ones into the save's own folders and updates "Files", the "Saved in Drive" column of "Results" and
+"Search details".
 
-The results shown can also be exported without Drive, as CSV or RIS. The site is private by design: a static page
+The results shown can also be exported without Drive, as CSV, RIS, BibTeX or CSL-JSON, or as a reference list in
+any citation style. The site is private by design: a static page
 with no server, no account and no tracking. The browser talks to the services directly, and Google Drive access is
 limited to the files the app creates (`drive.file`).
 
@@ -133,14 +149,27 @@ limited to the files the app creates (`drive.file`).
    200 to a request), each once, with how each is linked to the starting studies; it can be exported or saved to Drive
    with a "Search details" that reports it as the TARCiS statement asks. "What your results cite most" reads the
    references of the 200 best-matching results of each part of the search, counts the works they cite, and checks
-   whether the search finds the 50 cited most. A check of the search is written into "Search details" when the search
-   is saved.
+   whether the search finds the 50 cited most. "More like these" takes the same kind of list and puts together the
+   works OpenAlex lists as related to each (`related_works`: up to ten, by embedding similarity of title, abstract and
+   venue since October 2026), ranks them by how many of the starting studies they are like, optionally goes one step
+   further, and checks which ones the search finds. The list ("your studies") is kept in the browser; "☆ Add to your
+   studies" under each result adds to it, and Review tools › Your studies lists, cites, exports or saves it. A check
+   of the search, a citation search and a similar-studies search of the same visit are written into "Search details"
+   when the search is saved.
 9. **Reporting.** "Search details" also has the 16 PRISMA-S items, filled in where Research Finder knows the answer
    and marked [to complete] where it does not, a methods paragraph to adapt, and the automated steps a review should
    disclose (term suggestions, machine translation, ranking, design tags, deduplication). Each save adds "PRISMA flow
    diagram.svg", the PRISMA 2020 flow diagram for new reviews with the records the search found filled in, the
    duplicates within the search when all results were saved, and the records from a citation search of the same visit;
    every other box is left as (n = …). Export › PRISMA 2020 flow diagram gives the same diagram without a save.
+10. **References and library links.** "Cite" formats a reference with the DOI Foundation's citation formatter
+   (`citation.doi.org/format`, CSL styles, about four requests a second, cached for the visit); a record without a DOI
+   gets an APA reference made from OpenAlex's data, with names split heuristically. Export adds BibTeX and CSL-JSON
+   next to RIS (all with volume, issue, pages, ISSN and publisher from OpenAlex's `biblio` and source), and every
+   result carries a COinS span (OpenURL Z39.88-2004) for the Zotero Connector. Under Settings, a visitor can add their
+   library's OpenURL link resolver (a pasted Alma, SFX or Google Scholar library link is cut down to the library's own
+   parameters) and proxy prefix (EZproxy `login?url=`, OpenAthens, or a template with `{url}`); each study then links
+   to "Find it at my library" and "Through my library". Nothing is fetched for these links.
 
 ### Limits
 
@@ -169,6 +198,13 @@ limited to the files the app creates (`drive.file`).
   does not list may still have been replicated.
 - OSF and figshare files cannot be copied into Drive by a browser alone; the "Files" sheet has their download links,
   or a file relay copies them (below).
+- Running a saved search again collects all its results, so it costs as many OpenAlex requests as saving all of them;
+  without a key a large search may stop early (then what it got is added and the next run adds the rest). New records
+  are newly retrieved, not necessarily newly published. OpenAlex recomputes its similar works from time to time, so
+  "More like these" can give other studies later.
+- Formatted references come from the metadata registered with each DOI: titles sometimes lack their subtitle, and
+  italics are not kept. OpenAlex does not say which part of a name is the family name, so references made without a
+  DOI, and BibTeX and CSL-JSON names, may split some names wrongly.
 
 ## File relay (optional)
 
@@ -215,11 +251,12 @@ The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata
 translation of the terms), `translate.js` (English for results in other languages: which language a title is in,
 the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `checks.js`
 (study designs, retractions and corrections from Crossref, replications from FReD), `review.js` (checking the search
-against known studies, citation searching, what the results cite, the PRISMA flow diagram), `drive.js`
-(Google sign-in and the folder structure), `main.js` (the search page), `landing.js` (the tabs of the front page) and
+against known studies, citation searching, similar studies, your studies, what the results cite, the PRISMA flow
+diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted references), `drive.js` (Google sign-in, the
+folder structure, adding new results to a save), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=36`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=37`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

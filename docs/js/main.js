@@ -1,15 +1,17 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=36";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=36";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=36";
+import { CONFIG } from "../config.js?v=37";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=37";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=37";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=36";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=37";
 import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle, englishTitles,
-  SAVE_TRANSLATIONS } from "./translate.js?v=36";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=36";
+  SAVE_TRANSLATIONS } from "./translate.js?v=37";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave, addToSave, detailsText,
+  RECORD } from "./drive.js?v=37";
 import { DESIGN_NAMES, designsOf, designText, checksOn, checkUpdates, updatesOf, updatesText, SERIOUS, loadReplications, replicationsDate,
-  replicationsOf, replicationText, replicationsCell } from "./checks.js?v=36";
-import { openTools, prismaSvg, checkHtml } from "./review.js?v=36";
+  replicationsOf, replicationText, replicationsCell } from "./checks.js?v=37";
+import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount } from "./review.js?v=37";
+import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=37";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
@@ -460,8 +462,25 @@ function renderRecord(r) {
   if (r.doi) links.push(link(`https://doi.org/${r.doi}`, r.kind === "d" ? "Dataset page" : "DOI"));
   if (safeUrl(r.url)) links.push(link(safeUrl(r.url), r.doi ? "Record page" : "Open record"));
   if (safeUrl(r.pdf)) links.push(link(safeUrl(r.pdf), "Open PDF"));
-  if (links.length) li.append(h("div", { class: "r-links" }, links));
+  if (studies) for (const l of libraryLinks(r)) links.push(link(l.href, l.text, l.title));
+  links.push(h("button", { type: "button", class: "link-btn", title: "Its reference in APA or another style, or as a file for a reference manager", onclick: () => openCite([r], toolsCtx) }, "Cite"));
+  if (studies && r.oa) links.push(mineButton(r));
+  li.append(h("div", { class: "r-links" }, links), coins(r));
   return li;
+}
+
+/* Adds a study to "your studies", the list the review tools start from, or takes it out. */
+function mineButton(r) {
+  const b = h("button", { type: "button", class: "link-btn mine" });
+  const draw = () => {
+    const on = isMine(r);
+    b.setAttribute("aria-pressed", String(on));
+    b.textContent = on ? "★ In your studies" : "☆ Add to your studies";
+    b.title = on ? "Take it out of your studies" : "Add it to your studies: the list that Review tools check your search against, search the citations of and find similar studies to";
+  };
+  b.addEventListener("click", () => { toast(toggleMine(r) ? "Added to your studies (Review tools › Your studies)" : "Taken out of your studies"); draw(); renderToolbar(); });
+  draw();
+  return b;
 }
 
 function renderToolbar(status) {
@@ -486,13 +505,18 @@ function renderToolbar(status) {
       results.length ? menu("Export ▾", [
         ["Spreadsheet (CSV)", exportCsv],
         ["References (RIS) for Zotero, EndNote, Rayyan, Covidence or ASReview", exportRis],
+        ["BibTeX for LaTeX, Overleaf or JabRef", () => exportRefs("bib")],
+        ["CSL-JSON for Zotero, Pandoc or citation processors", () => exportRefs("csl")],
+        ["Formatted references, in APA or another style", () => openCite(results, toolsCtx)],
         ["PRISMA 2020 flow diagram (SVG), with the numbers of this search", exportPrisma],
       ], "Download the results shown, with their abstracts") : null,
       results.length && !data ? menu("Review tools ▾", [
         ["Check your search against studies it should find", () => openTools("check", toolsCtx)],
         ["Citation search from your studies", () => openTools("chase", toolsCtx)],
+        ["More like these: studies similar to yours", () => openTools("similar", toolsCtx)],
         ["What your results cite most", () => openTools("cited", toolsCtx)],
-      ], "Check the search, search citations, and find key studies the search misses") : null));
+        [`Your studies (${fmt(mineCount())}): see, cite or export them`, () => openTools("mine", toolsCtx)],
+      ], "Check the search, search citations, find similar studies and key studies the search misses") : null));
   const settings = (label) => h("button", { type: "button", class: "btn btn-small", onclick: openSettings }, label);
   const msgs = notes.map((text) => ({ text, warn: true }));
   if (extra.dropped && !data) {
@@ -573,6 +597,12 @@ function risOf(records, en = translationsOn(), checks = state.tab === "studies")
     tag("PY", r.year || ""),
     tag("DA", (r.date || "").slice(0, 10).replace(/-/g, "/")),
     tag(r.kind === "d" ? "PB" : "T2", r.venue),
+    tag("VL", r.volume),
+    tag("IS", r.issue),
+    tag("SP", r.fpage),
+    tag("EP", r.lpage),
+    tag("SN", r.issn),
+    r.kind === "d" ? "" : tag("PB", r.publisher),
     tag("AB", r.full || r.abstract),
     ...(r.keywords || []).map((k) => tag("KW", k)),
     tag("DO", r.doi),
@@ -585,6 +615,23 @@ function risOf(records, en = translationsOn(), checks = state.tab === "studies")
     tag("N1", note("Replications in the FORRT Replication Database (FReD)", replicationsCell(r))),
     "ER  - \r\n",
   ].join("")).join("\r\n");
+}
+
+/* The results as a file for reference managers: RIS, BibTeX or CSL-JSON, with the same notes (an English title, a
+   retraction or correction). */
+const REF_FILES = { ris: ["ris", "application/x-research-info-systems"], bib: ["bib", "application/x-bibtex"], csl: ["json", "application/vnd.citationstyles.csl+json"] };
+function refsText(records, format, en = translationsOn(), checks = state.tab === "studies") {
+  if (format === "ris") return risOf(records, en, checks);
+  const notes = (r) => [en && englishTitle(r) ? `Title in English, an automatic translation (Wikimedia MinT), not a professional one: ${englishTitle(r)}` : "",
+    checks && updatesText(r) ? `Retraction or correction (Crossref, Retraction Watch): ${updatesText(r)}` : ""].filter(Boolean);
+  if (format === "bib") return bibtexOf(records, { notes, language: (r) => (r.lang === "en" ? "English" : LANG_NAMES[r.lang] || r.lang || "") });
+  return cslOf(records, { notes });
+}
+async function exportRefs(format) {
+  await englishFirst(results);
+  await checksFirst(results);
+  const [ext, type] = REF_FILES[format];
+  downloadFile(`research-finder-${fileDate()}.${ext}`, refsText(results, format), type);
 }
 
 function downloadFile(name, text, type, message) {
@@ -629,8 +676,12 @@ const toolsCtx = {
   async exportRecords(records, { extraName, extraOf, name, format }) {
     await englishFirst(records);
     await checksFirst(records);
-    const en = translationsOn(), message = `Exported ${plural(records.length, "study", "studies")}`;
-    if (format === "ris") { downloadFile(`${name}-${fileDate()}.ris`, risOf(records, en, true), "application/x-research-info-systems", message); return; }
+    const en = translationsOn(), message = `Exported ${state.tab === "data" ? plural(records.length, "dataset") : plural(records.length, "study", "studies")}`;
+    if (REF_FILES[format]) {
+      const [ext, type] = REF_FILES[format];
+      downloadFile(`${name}-${fileDate()}.${ext}`, refsText(records, format, en, true), type, message);
+      return;
+    }
     const rows = [[...header(en, true), extraName], ...records.map((r, i) => [...rowOf(r, i, en, true), extraOf(r)])];
     downloadFile(`${name}-${fileDate()}.csv`, "﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n"), "text/csv;charset=utf-8", message);
   },
@@ -713,6 +764,7 @@ function openSave() {
       h("li", {}, h("strong", {}, "Files"), " — a Google Sheet with every file found: its download link, and whether it was saved (and if not, why)"),
       h("li", {}, h("strong", {}, "Search details"), " — a document with your keywords, every term and translation used, the filters and the exact queries, so the search can be repeated, with the PRISMA-S items, a methods paragraph and the automated steps to report"),
       h("li", {}, h("strong", {}, "PRISMA flow diagram.svg"), " — the PRISMA 2020 flow diagram with the numbers of this search filled in, the rest for you to fill"),
+      h("li", {}, h("strong", {}, RECORD), " — the search and which results were saved, so that Earlier saves can run it again and add only the new results"),
       studiesTab ? h("li", {}, h("strong", {}, "Papers/"), " — the open PDFs (also open versions found through Semantic Scholar, such as arXiv preprints)")
         : h("li", {}, h("strong", {}, "Datasets/"), " — one folder per dataset with its open data files")),
     h("p", { class: "save-row" }, h("label", { for: "save-count" }, "Save "), howMany, h("span", {}, ` of ${fmt(total)} results`)),
@@ -787,55 +839,15 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
       ? await englishTitles(rows, { onProgress: (n, of) => progress(`Translating the titles in other languages into English: ${fmt(n)} of ${fmt(of)}…`) }) : null;
     const checks = state.tab === "studies";
     if (checks) await checkAll(rows, progress);
-    const jobs = [], relay = relayAddress();
-    // a relay that fetches publishers' PDFs too (version 2) is asked for every PDF the browser cannot get itself
-    const pdfRelay = relay && withFiles && state.tab === "studies" && (await checkRelay(relay)).pdf;
-    if (relay && withFiles && state.tab === "studies") local.set("relayPdf", pdfRelay ? "1" : "");
-    const name = (r) => `${((r.authors || "").split(/[;,]/)[0].trim().split(" ").pop() || "study")}_${r.year || "n.d."}_${r.title.slice(0, 70)}`;
-    if (withFiles && state.tab === "studies") {
-      progress("Looking for open PDFs…");
-      const s2 = {};
-      const dois = rows.map((r) => (r.doi || "").toLowerCase()).filter(Boolean);
-      for (let i = 0; i < dois.length; i += 500) {
-        try { Object.assign(s2, await semanticScholarPdfs(dois.slice(i, i + 500))); } catch { /* optional */ }
-      }
-      rows.forEach((r, i) => {
-        const urls = [...new Set([safeUrl(r.pdf), ...(s2[(r.doi || "").toLowerCase()] || [])].filter(Boolean))];
-        if (urls.length) jobs.push({ row: i, kind: "paper", urls, name: `${name(r)}.pdf`, title: r.title, repo: r.venue || "" });
-      });
-      await pool(jobs, 4, async (j) => {
-        j.urls = await pdfLinks(j.urls);
-        j.source = j.urls[0];
-        if (pdfRelay) j.urls = [...j.urls.filter((u) => !needsRelay(u)), ...j.urls.map(relayed)];
-        else if (relay) j.urls = j.urls.map((u) => (needsRelay(u) ? relayed(u) : u));
-      });
-    }
-    if (withFiles && state.tab === "data") {
-      let listed = 0;
-      const lists = rows.map(() => []);
-      await pool(rows.map((r, i) => [r, i]), 4, async ([r, i]) => {
-        try { lists[i] = await datasetFiles(r); } catch { /* listed as a link only */ }
-        progress(`Listing the files of the datasets: ${fmt(++listed)} of ${fmt(rows.length)}…`);
-      });
-      rows.forEach((r, i) => {
-        for (const f of lists[i]) {
-          jobs.push({ row: i, kind: "data", urls: [f.relay && relay ? relayed(f.url) : f.url], source: f.url, name: f.name, size: f.size || 0,
-            copy: !f.relay || Boolean(relay), repo: repoOf(f.url) || r.source, dataset: `${r.year || "n.d."} ${r.title.slice(0, 80)}`, title: r.title });
-        }
-      });
-    }
+    const jobs = withFiles ? await fileJobs(rows, state.tab, progress) : [];
     const title = `${state.input} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
     const res = await saveSearch({
       title, header: header(Boolean(english), checks), rows: rows.map((r, i) => rowOf(r, i, Boolean(english), checks)), ris: risOf(rows, Boolean(english), checks), jobs, maxFile,
       maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
       detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes, english, checks ? checkStats(rows) : null, count >= total),
       extras: [{ name: "PRISMA flow diagram.svg", type: "image/svg+xml", text: prismaSvg(prismaCounts(rows.length, count >= total, gotNotes)) }],
-      onSignIn: () => new Promise((resolve, reject) => {
-        fill($("#save-signin"), h("p", { class: "note warn" }, "Google's sign-in has run out (it lasts an hour). "),
-          h("button", { type: "button", class: "btn btn-small btn-primary", onclick: async () => {
-            try { await connect(); fill($("#save-signin")); resolve(); } catch (e) { reject(e); }
-          } }, "Connect again and continue"));
-      }),
+      record: searchRecord(rows, count >= total && !gotNotes.length),
+      onSignIn: signInAgain($("#save-signin")),
     });
     const listedOnly = res.failed.filter((j) => j.copy === false).length;
     const notSaved = res.failed.length - listedOnly;
@@ -847,7 +859,10 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
       listedOnly ? h("span", { class: "note" }, ` ${plural(listedOnly, "file")} from OSF or figshare ${listedOnly === 1 ? "is" : "are"} listed with ${listedOnly === 1 ? "its" : "their"} download link in “Files”; a file relay (Settings) copies them too.`) : null,
       notSaved ? h("span", { class: "note" }, ` ${plural(notSaved, "file")} could not be saved; “Files” says why, and `,
         h("button", { type: "button", class: "link-btn", onclick: () => { $("#save").close(); openEarlier(); } }, "Earlier saves"),
-        " can try them again later.") : null));
+        " can try them again later.") : null,
+      h("span", { class: "note" }, " To update it later, ", h("button", { type: "button", class: "link-btn", onclick: () => { $("#save").close(); openEarlier(); } }, "Earlier saves"),
+        " runs the same search again and adds only the new results to this folder (",
+        h("button", { type: "button", class: "link-btn", onclick: () => downloadReminder(title) }, "a monthly reminder for your calendar"), ").")));
     fill($("#drive-result"), h("p", {}, "Saved in your Google Drive: ", links()));
     $("#drive-result").hidden = false;
   } catch (e) {
@@ -855,6 +870,57 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
   } finally {
     go.disabled = false;
   }
+}
+
+/* What a Drive save waits on when Google's sign-in runs out (it lasts an hour): a button to connect again. */
+const signInAgain = (box) => () => new Promise((resolve, reject) => {
+  fill(box, h("p", { class: "note warn" }, "Google's sign-in has run out (it lasts an hour). "),
+    h("button", { type: "button", class: "btn btn-small btn-primary", onclick: async () => {
+      try { await connect(); fill(box); resolve(); } catch (e) { reject(e); }
+    } }, "Connect again and continue"));
+});
+
+/* The files to save for these results: the open PDFs of studies (also open versions found through Semantic Scholar),
+   the open data files of datasets, through the file relay where it helps. */
+async function fileJobs(rows, tab, progress) {
+  const jobs = [], relay = relayAddress();
+  // a relay that fetches publishers' PDFs too (version 2) is asked for every PDF the browser cannot get itself
+  const pdfRelay = relay && tab === "studies" && (await checkRelay(relay)).pdf;
+  if (relay && tab === "studies") local.set("relayPdf", pdfRelay ? "1" : "");
+  const name = (r) => `${((r.authors || "").split(/[;,]/)[0].trim().split(" ").pop() || "study")}_${r.year || "n.d."}_${r.title.slice(0, 70)}`;
+  if (tab === "studies") {
+    progress("Looking for open PDFs…");
+    const s2 = {};
+    const dois = rows.map((r) => (r.doi || "").toLowerCase()).filter(Boolean);
+    for (let i = 0; i < dois.length; i += 500) {
+      try { Object.assign(s2, await semanticScholarPdfs(dois.slice(i, i + 500))); } catch { /* optional */ }
+    }
+    rows.forEach((r, i) => {
+      const urls = [...new Set([safeUrl(r.pdf), ...(s2[(r.doi || "").toLowerCase()] || [])].filter(Boolean))];
+      if (urls.length) jobs.push({ row: i, kind: "paper", urls, name: `${name(r)}.pdf`, title: r.title, repo: r.venue || "" });
+    });
+    await pool(jobs, 4, async (j) => {
+      j.urls = await pdfLinks(j.urls);
+      j.source = j.urls[0];
+      if (pdfRelay) j.urls = [...j.urls.filter((u) => !needsRelay(u)), ...j.urls.map(relayed)];
+      else if (relay) j.urls = j.urls.map((u) => (needsRelay(u) ? relayed(u) : u));
+    });
+  }
+  if (tab === "data") {
+    let listed = 0;
+    const lists = rows.map(() => []);
+    await pool(rows.map((r, i) => [r, i]), 4, async ([r, i]) => {
+      try { lists[i] = await datasetFiles(r); } catch { /* listed as a link only */ }
+      progress(`Listing the files of the datasets: ${fmt(++listed)} of ${fmt(rows.length)}…`);
+    });
+    rows.forEach((r, i) => {
+      for (const f of lists[i]) {
+        jobs.push({ row: i, kind: "data", urls: [f.relay && relay ? relayed(f.url) : f.url], source: f.url, name: f.name, size: f.size || 0,
+          copy: !f.relay || Boolean(relay), repo: repoOf(f.url) || r.source, dataset: `${r.year || "n.d."} ${r.title.slice(0, 80)}`, title: r.title });
+      }
+    });
+  }
+  return jobs;
 }
 
 /* ------------------------------------------------------------------ earlier saves */
@@ -866,7 +932,7 @@ const FILE_COLUMNS = ["Result no.", "Result", "File", "Size (MB)", "Repository",
 async function openEarlier() {
   const d = $("#earlier"), body = $("#earlier-body");
   if (!d.open) d.showModal();
-  const intro = h("p", {}, "Add to an earlier save the files it did not copy: for example the PDFs a file relay can fetch, or files a size limit left out. New files go into the save's own folders, and its sheets “Files” and “Results” and its “Search details” are updated.");
+  const intro = h("p", {}, "Run an earlier save's search again and add only the new results to its folder, or add the files it did not copy, for example the PDFs a file relay can fetch, or files a size limit left out.");
   if (!driveConnected()) {
     fill(body, intro, h("p", {}, h("button", { type: "button", class: "btn btn-small btn-drive", onclick: async () => {
       try { await connect(); openEarlier(); } catch (e) { toast(e.message, 5000); }
@@ -895,13 +961,20 @@ async function showEarlierSave(save, box) {
   let s;
   try {
     s = await readSave(save);
+    // a save made before 12 November 2026 has no record of its search: its queries are read from "Search details"
+    if (!s.record) s.guess = await recordFromDetails(s).catch((e) => { if (/sign-in/.test(e.message)) throw e; return null; });
   } catch (e) {
     fill(box, h("p", { class: "note warn" }, `This save could not be read: ${e.message}`));
     return;
   }
   if ($("#earlier-pick").value !== save.id) return;   // another save was chosen meanwhile
-  const say = (text, cls = "note") => fill(box, h("p", { class: cls }, text));
-  if (!s.files) return say("This save has no sheet “Files”, so Research Finder cannot tell which files are missing (saves made with the first versions, before 2 November 2026, have none).");
+  fill(box, h("h3", {}, "Run its search again"), againPart(s), h("h3", {}, "Files it did not copy"), filesPart(s));
+}
+
+/* The files a save did not copy, and a button that tries them again. */
+function filesPart(s) {
+  const say = (text, cls = "note") => h("p", { class: cls }, text);
+  if (!s.files) return say("This save has no sheet “Files”: it was saved without its files, or with a version from before 2 November 2026, so Research Finder cannot tell which files are missing.");
   if (!s.fileRows) return say("The sheet “Files” of this save could not be read.", "note warn");
   const head = s.fileRows[0] || [];
   const gone = FILE_COLUMNS.filter((n) => !head.includes(n));
@@ -922,7 +995,7 @@ async function showEarlierSave(save, box) {
   const signin = h("div", { id: "earlier-signin", class: "save-progress" });
   const go = h("button", { type: "button", class: "btn btn-primary", id: "earlier-go" }, missing.length === 1 ? "Add the missing file" : `Add the ${fmt(missing.length)} missing files`);
   go.onclick = () => runFill(s, missing, c, studies, Number(fileLimit.value), Number(totalLimit.value), go, progress, signin);
-  fill(box,
+  return [
     h("p", {}, `${plural(lines.length, "file")} listed: ${fmt(lines.length - missing.length)} saved, ${fmt(missing.length)} not saved. `,
       link(s.link, "Open the folder"), " · ", link(s.files.webViewLink, "Files")),
     missing.length ? [
@@ -933,7 +1006,221 @@ async function showEarlierSave(save, box) {
         : ["OSF and figshare files need a file relay (", h("button", { type: "button", class: "link-btn", onclick: () => { $("#earlier").close(); openSettings(); } }, "Settings"), ")."]),
       h("p", { class: "note" }, "This takes a while for many files: keep this tab open."),
       h("div", { class: "save-actions" }, go), signin, progress,
-    ] : h("p", { class: "note" }, "Every file of this save is in your Drive."));
+    ] : h("p", { class: "note" }, "Every file of this save is in your Drive."),
+  ];
+}
+
+/* ------------------------------------------------------------------ running a saved search again */
+/* What a save needs to be run again ("Research Finder search.json"): the search, its exact queries, and which results
+   it saved (their DOIs, OpenAlex IDs and links), each run added to it. */
+const linkKey = (r) => r.url || r.landing || "";
+const itemKeys = (r) => [...new Set([r.doi && `doi:${r.doi.toLowerCase()}`, r.oa && `oa:${r.oa}`, linkKey(r) && `u:${linkKey(r)}`].filter(Boolean))];
+const titleKey = (title, year) => `t:${norm(title).slice(0, 80)}|${year || ""}`;
+const keysOf = (r) => [...itemKeys(r), titleKey(r.title, r.year)];
+function searchRecord(rows, complete) {
+  return {
+    app: "Research Finder", format: 1,
+    about: "Research Finder reads this file to run the search again and add only the new results to this folder (Settings › Earlier saves). Changing it can stop that from working.",
+    site: location.origin + location.pathname, link: location.href,
+    tab: state.tab, input: state.input, mode: state.mode, sort: state.sort, filters: state.filters,
+    queries: state.tab === "studies" ? SOURCES.studies.queries(query()).parts : null,
+    groups: groupsForSearch().map((ts) => ts.map(({ text, lang, src, of, i, loose }) => ({ text, lang, src, of, i, loose }))),
+    runs: [{ date: new Date().toISOString(), total, saved: rows.length, all: complete }],
+    items: rows.map(itemKeys),
+  };
+}
+
+/* The results a save had, from its sheets "Results" and "New results ...", for a save without a record. */
+function sheetRows(s) {
+  return [s.resultRows, ...(s.added || []).map((a) => a.rows)].filter((rows) => rows && rows.length > 1).flatMap((rows) => {
+    const c = (n) => rows[0].indexOf(n);
+    const at = { doi: c("DOI"), url: c("Link"), title: c("Title"), year: c("Year") };
+    return rows.slice(1).map((r) => ({ doi: String(r[at.doi] || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase(), url: r[at.url] || "", title: r[at.title] || "", year: r[at.year] || "" }));
+  });
+}
+const sheetItems = (s) => sheetRows(s).map((r) => [r.doi && `doi:${r.doi}`, r.url && `u:${r.url}`, r.title && titleKey(r.title, r.year)].filter(Boolean)).filter((ks) => ks.length);
+
+/* For a save made before 12 November 2026: its OpenAlex queries, from "Queries sent" in its "Search details", and its
+   filters, from the link at the end ("Repeat the search: ..."). null when they cannot be read. */
+async function recordFromDetails(s) {
+  const text = String(await detailsText(s) || "").replace(/\r/g, "");
+  const part = (text.split(/\n\s*Queries sent\s*\n/)[1] || "").split(/\n\s*What was saved\s*\n/)[0];
+  if (!/^\s*OpenAlex/m.test(part)) return null;
+  const queries = part.split("\n").map((l) => l.trim().replace(/^Search \d+:\s*/, "")).filter((l) => /^[("]/.test(l) && l.length <= 1500);
+  if (!queries.length || queries.length > 8) return null;
+  const where = (/Repeat the search:\s*(https?:\/\/\S+)/.exec(text) || [])[1] || "";
+  let p;
+  try { p = new URLSearchParams(new URL(where).hash.slice(1)); } catch { p = new URLSearchParams(); }
+  const list = (k) => (p.get(k) || "").split(",").filter(Boolean);
+  return {
+    app: "Research Finder", format: 1, tab: "studies", link: where, input: p.get("q") || s.name.replace(/ — \d{4}-\d\d-\d\d \d\d[: ]\d\d$/, ""),
+    mode: p.get("match") === "any" ? "any" : "all", sort: p.get("sort") || "rel", queries,
+    filters: { ...emptyFilters(), kinds: list("type"), designs: list("design").filter((d) => DESIGN_NAMES[d]), langs: list("lang"),
+      from: parseInt(p.get("from"), 10) || null, to: parseInt(p.get("to"), 10) || null, open: p.get("open") === "1", fulltext: p.get("fulltext") === "1" },
+  };
+}
+
+/* "Searched on 12 November 2026, 3 months ago. ... turns 12 months old on 12 November 2027." */
+function ageText(first, last, runs) {
+  if (!last) return "";
+  const days = Math.floor((Date.now() - new Date(`${last}T12:00:00Z`)) / 864e5);
+  const due = new Date(`${last}T12:00:00Z`);
+  due.setUTCFullYear(due.getUTCFullYear() + 1);
+  const ago = days < 1 ? `today (${dateText(last)})` : days < 2 ? `yesterday (${dateText(last)})`
+    : `on ${dateText(last)}, ${days < 61 ? `${days} days ago` : `${Math.round(days / 30.44)} months ago`}`;
+  return `${runs > 1 ? `Saved on ${dateText(first)}; last run again` : "Searched"} ${ago}. `
+    + (days > 365 ? "That is more than 12 months ago: reviews that follow Cochrane's standards run their searches again before they are published."
+      : `Reviews that follow Cochrane's standards run their searches again within the 12 months before they are published: this search turns 12 months old on ${dateText(due.toISOString().slice(0, 10))}.`);
+}
+
+function againPart(s) {
+  const rec = s.record || s.guess;
+  const runs = (s.record && s.record.runs) || [];
+  const first = ((runs[0] && runs[0].date) || s.created || "").slice(0, 10);
+  const last = ((runs.length && runs[runs.length - 1].date) || s.created || "").slice(0, 10);
+  const box = h("div", { class: "save-progress", role: "status", "aria-live": "polite" });
+  const signin = h("div", { class: "save-progress" });
+  const remind = h("button", { type: "button", class: "btn btn-small", onclick: () => downloadReminder(s.name), title: "A calendar file with a reminder every month for a year" }, "Monthly reminder");
+  const out = [h("p", {}, ageText(first, last, runs.length))];
+  if (!rec) {
+    if (/^(Citation search|Similar studies|Your studies) — /.test(s.name)) return [h("p", { class: "note" }, "This folder holds studies from a review tool, not a saved search, so there is no search to run again.")];
+    out.push(h("p", { class: "note" }, "This save cannot be run again here: it was made before Research Finder kept a record of its search (12 November 2026), and its queries could not be read from its “Search details”. Search for its keywords again and save the results as a new folder."),
+      h("div", { class: "save-actions" }, remind));
+    return out;
+  }
+  const studies = rec.tab !== "data";
+  const nq = (rec.queries || []).length;
+  const key = Boolean(local.get("openalexKey", ""));
+  const prev = runs[runs.length - 1];
+  const expected = (prev && (prev.total || prev.retrieved || prev.saved)) || (s.resultRows ? s.resultRows.length - 1 : 0);
+  const asks = Math.max(nq || 1, Math.ceil((expected || 200) / 200));
+  const files = h("input", { type: "checkbox", checked: true });
+  const go = h("button", { type: "button", class: "btn btn-primary" }, "Run it again and add what is new");
+  go.onclick = () => runAgain(s, rec, files.checked, go, box, signin);
+  out.push(
+    h("p", { class: "note" }, `Research Finder runs ${s.record ? "the same" : "its"} ${studies ? (nq > 1 ? `${nq} OpenAlex queries` : "OpenAlex query") : "queries in the same repositories"} again, with the same filters, and adds to this folder only the results it did not have: a sheet and a RIS file “New results” with the date, their open ${studies ? "PDFs" : "data files"}, and a note in “Search details”${studies && checksOn() ? ", which also lists the studies saved before that are now retracted" : ""}.`,
+      studies ? ` It takes about ${plural(asks, "request")} to OpenAlex, 200 results each${!key && asks > 25 ? "; without a key OpenAlex allows about 100 a day for your network, so it may stop early (then it adds what it got, and the next run adds the rest)" : ""}.` : ""),
+    s.record ? null : h("details", { class: "relay-guide" }, h("summary", {}, "Its queries, read from “Search details”"),
+      h("p", { class: "note" }, "This save was made before Research Finder kept a record of its search, so the queries were read from its “Search details”, and the filters from the link at its end: check that they are the ones you ran."),
+      (rec.queries || []).map((x) => h("p", { class: "tools-ids" }, x))),
+    h("p", { class: "save-row" }, h("label", {}, files, studies ? " Save the open PDFs of the new studies" : " Save the open data files of the new datasets")),
+    h("div", { class: "save-actions" }, go, remind), signin, box);
+  return out;
+}
+
+async function runAgain(s, rec, withFiles, go, box, signinBox) {
+  const progress = (m) => fill(box, spinner(), m);
+  go.disabled = true;
+  try {
+    if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
+    const tab = rec.tab === "data" ? "data" : "studies", studies = tab === "studies";
+    const q = { groups: rec.groups || [], mode: rec.mode === "any" ? "any" : "all", filters: { ...emptyFilters(), ...(rec.filters || {}) }, sort: rec.sort || "rel" };
+    const info = {}, notes = [], rows = [];
+    progress("Running the search again…");
+    for await (const batch of SOURCES[tab].all(q, notes, { queries: studies ? rec.queries : null, info })) {
+      rows.push(...batch);
+      progress(`Running the search again: ${fmt(rows.length)}${info.total ? ` of about ${fmt(info.total)}` : ""} results…`);
+    }
+    if (!rows.length && notes.length) throw new Error(notes[0]);
+    const earlier = s.record && s.record.items ? s.record.items : sheetItems(s);
+    const before = new Set(earlier.flat());
+    const fresh = rows.filter((r) => !keysOf(r).some((k) => before.has(k)));
+    const now = new Set(rows.flatMap(keysOf));
+    const gone = earlier.filter((ks) => !ks.some((k) => now.has(k))).length;
+    const english = translationsOn() && fresh.length
+      ? await englishTitles(fresh, { onProgress: (n, of) => progress(`Translating the titles in other languages into English: ${fmt(n)} of ${fmt(of)}…`) }) : null;
+    let changed = [];
+    if (studies) {
+      await loadReplications();
+      if (checksOn()) {
+        const old = earlier.flatMap((ks) => ks.filter((k) => k.startsWith("doi:")).map((k) => k.slice(4)));
+        await checkUpdates([...fresh.map((r) => r.doi), ...old], (n, of) => progress(`Checking for retractions and corrections: ${fmt(n)} of ${fmt(of)} studies…`));
+        const titles = new Map(sheetRows(s).filter((r) => r.doi).map((r) => [r.doi, r.title]));
+        changed = [...new Set(old)].map((doi) => ({ doi, title: titles.get(doi) || "", list: updatesOf({ doi }).list.filter((n) => SERIOUS.includes(n.kind) || n.kind === "expression_of_concern") }))
+          .filter((x) => x.list.length);
+      }
+    }
+    const jobs = withFiles && fresh.length ? await fileJobs(fresh, tab, progress) : [];
+    const when = new Date();
+    const name = `New results ${when.toISOString().slice(0, 16).replace("T", " ")}`;
+    const en = Boolean(english);
+    const total_ = info.total == null ? rows.length : info.total;
+    const run = { date: when.toISOString(), total: total_, retrieved: rows.length, added: fresh.length, notFound: gone, ...(notes.length ? { stoppedEarly: true } : {}) };
+    const record = { ...rec, app: "Research Finder", format: 1,
+      runs: [...(s.record && rec.runs ? rec.runs : [{ date: s.created || "", saved: earlier.length }]), run], items: [...earlier, ...fresh.map(itemKeys)] };
+    const res = await addToSave({
+      save: s, name, header: header(en, studies), rows: fresh.map((r, i) => rowOf(r, i, en, studies)), ris: fresh.length ? risOf(fresh, en, studies) : "", jobs,
+      maxFile: 250 * MB, maxTotal: 2e9, record, onProgress: progress, onSignIn: signInAgain(signinBox),
+      note: (st) => againHtml({ when, rec, exact: Boolean(s.record), studies, total: total_, retrieved: rows.length, fresh, gone, earlier: earlier.length, changed, notes, name, st }),
+    });
+    fill(box, h("p", {},
+      h("strong", {}, fresh.length ? `Added ${plural(fresh.length, "new result")}. ` : "Nothing new. "),
+      `The search found ${fmt(rows.length)} ${studies ? "studies" : "datasets"}; ${fmt(rows.length - fresh.length)} of them were in this folder already. `,
+      res.sheet ? [link(res.sheet.webViewLink, name), " · "] : null, link(s.link, "Open the folder"),
+      jobs.length ? h("span", { class: "note" }, ` ${plural(res.papers + res.dataFiles, "file")} saved (${(res.bytes / MB).toFixed(1)} MB) of ${fmt(jobs.length)} found.`) : null,
+      changed.length ? h("span", { class: "note warn" }, ` ${plural(changed.length, "study", "studies")} saved before ${changed.length === 1 ? "is" : "are"} now marked retracted, withdrawn or with an expression of concern: “Search details” lists ${changed.length === 1 ? "it" : "them"}.`) : null,
+      notes.length ? h("span", { class: "note warn" }, ` ${[...new Set(notes)].join(" ")}`) : null,
+      res.recordError ? h("span", { class: "note warn" }, ` The record of the search could not be updated (${res.recordError}), so the next run may list these results again.`) : null,
+      res.detailsError ? h("span", { class: "note warn" }, ` “Search details” could not be updated (${res.detailsError}).`) : null));
+    s.record = record;           // a second run in this visit starts from this one
+    if (res.recordFile) s.recordFile = res.recordFile;
+  } catch (e) {
+    fill(box, h("p", { class: "note warn" }, `Stopped: ${e.message}`));
+  } finally {
+    go.disabled = false;
+  }
+}
+
+const localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/* For "Search details": what a run of the saved search found. */
+function againHtml({ when, rec, exact, studies, total: n, retrieved, fresh, gone, earlier, changed, notes, name, st }) {
+  const qs = rec.queries || [];
+  const files = st.papers + st.dataFiles;
+  const how = exact ? "DOI, OpenAlex ID or link" : "DOI, link, or title and year";
+  return `<h2>Run again on ${esc(dateText(localDay(when)))}</h2>
+<p>On ${esc(dateText(localDay(when)))} at ${esc(when.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }))}, the search was run again with Research Finder (${esc(location.origin + location.pathname)}), ${exact ? "with the same queries and filters as when it was saved" : "with the queries in “Queries sent” above and the filters of the link at the end of this document"}${studies && qs.length ? `: ${qs.map((x) => `<code>${esc(x)}</code>`).join("; ")}` : ""}.</p>
+<p>It found ${fmt(n)} records${retrieved !== n ? ` (${fmt(retrieved)} different ones retrieved)` : ""}. ${fresh.length
+    ? `${fmt(fresh.length)} of them ${fresh.length === 1 ? "was" : "were"} not among the ${fmt(earlier)} records this folder had before (matched by ${how}): ${fresh.length === 1 ? "it is" : "they are"} in the sheet “${esc(name)}” and in “${esc(name)}.ris”, to screen. ${fresh.length === 1 ? "It was" : "They were"} newly retrieved, not necessarily newly published: a record can enter a search when its data changes.`
+    : `All of them were among the ${fmt(earlier)} records this folder had before (matched by ${how}), so nothing was added.`} ${fmt(gone)} of the records saved before ${gone === 1 ? "was" : "were"} not found this time; OpenAlex corrects, merges and removes records.${files ? ` ${fmt(files)} files of the new results were saved (${(st.bytes / MB).toFixed(1)} MB).` : ""}</p>
+${notes.length ? `<p>${[...new Set(notes)].map(esc).join(" ")}</p>` : ""}
+${changed.length ? `<p>Studies saved before that are now marked (Crossref, which includes the Retraction Watch database):</p><ul>${changed.slice(0, 100).map((x) => `<li>${esc(x.title || x.doi)}, https://doi.org/${esc(x.doi)}: ${esc(x.list.map((u) => `${u.label}${u.date ? ` on ${dateText(u.date)}` : ""}`).join("; "))}</li>`).join("")}</ul>${changed.length > 100 ? `<p>And ${fmt(changed.length - 100)} more.</p>` : ""}`
+    : studies && checksOn() ? "<p>None of the studies saved before is marked retracted, withdrawn or with an expression of concern (Crossref, which includes the Retraction Watch database).</p>" : ""}
+<p>For the PRISMA 2020 flow diagram of an updated review: records identified in this run ${fmt(n)}; found in an earlier run ${fmt(retrieved - fresh.length)}; new records to screen ${fmt(fresh.length)}.</p>`;
+}
+
+/* A calendar file with a reminder every month for a year to run a saved search again. */
+function downloadReminder(name) {
+  const site = location.origin + location.pathname.replace(/index\.html$/, "");
+  const start = new Date();
+  start.setDate(Math.min(start.getDate(), 28));       // every month has it
+  start.setMonth(start.getMonth() + 1);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  const day = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const text = (t) => String(t).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  // lines of at most 75 bytes, continued on the next line after a space
+  const fold = (line) => {
+    const enc = new TextEncoder();
+    let out = "", cur = "", size = 0;
+    for (const ch of line) {
+      const n = enc.encode(ch).length;
+      if (size + n > (out ? 74 : 75)) { out += (out ? "\r\n " : "") + cur; cur = ""; size = 0; }
+      cur += ch;
+      size += n;
+    }
+    return out ? `${out}\r\n ${cur}` : cur;
+  };
+  const keywords = String(name).replace(/ — \d{4}-\d\d-\d\d \d\d[: ]\d\d$/, "");
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Research Finder//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "BEGIN:VEVENT",
+    `UID:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}@research-finder`,
+    `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "")}`,
+    `DTSTART;VALUE=DATE:${day(start)}`, `DTEND;VALUE=DATE:${day(end)}`, "RRULE:FREQ=MONTHLY;COUNT=12",
+    `SUMMARY:${text(`Run the search “${keywords}” again (Research Finder)`)}`,
+    `DESCRIPTION:${text(`Open Research Finder (${site}#earlier), choose the save “${name}” and “Run it again and add what is new”: it adds only the new results to the save's folder in your Google Drive.`)}`,
+    `URL:${site}#earlier`, "END:VEVENT", "END:VCALENDAR"];
+  downloadFile(`run-again-${fileDate()}.ics`, lines.map(fold).join("\r\n") + "\r\n", "text/calendar;charset=utf-8",
+    "Calendar file downloaded: open it to add a reminder every month for a year.");
 }
 
 async function runFill(s, missing, c, studies, maxFile, maxTotal, go, box, signinBox) {
@@ -1032,6 +1319,13 @@ function chaseNote(c) {
 <p>On ${esc(dateText(c.date))}, a citation search in OpenAlex from ${plural(c.seeds.length, "study", "studies")} (${[c.back ? "their references" : "", c.forward ? "the studies that cite them" : ""].filter(Boolean).join(" and ")}) found ${plural(c.records.length, "study", "studies")}. It is not in this folder: save it from Review tools › Citation search, which gives it a folder with its own “Search details”.</p>`;
 }
 
+/* For "Search details": the similar studies found in this visit ("More like these"), which are saved on their own. */
+function similarNote(c) {
+  const missed = c.records.filter((e) => e.found === false).length;
+  return `<h2>Similar studies</h2>
+<p>On ${esc(dateText(c.date))}, “More like these” found ${plural(c.records.length, "study", "studies")} similar to ${plural(c.seeds.length, "study", "studies")} of the reviewer's, from OpenAlex's lists of related works (machine-learned similarity of titles, abstracts and venues)${c.checked ? `; ${fmt(missed)} of them were not found by the search it was checked against` : ""}. They are not in this folder: save them from Review tools › More like these, which gives them a folder with its own “Search details”.</p>`;
+}
+
 /* For "Search details": the PRISMA 2020 numbers, the PRISMA-S items, a methods paragraph and the automated steps to
    disclose, from what this search actually did. Placeholders in [brackets] are for the reviewers to complete. */
 function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
@@ -1065,12 +1359,12 @@ function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
     ["Online resources and browsing", "[To complete: websites, conference proceedings or tables of contents browsed, and how.]"],
     ["Citation searching", review.chase ? `Backward and forward citation searching in OpenAlex from ${plural(review.chase.seeds.length, "study", "studies")} on ${dateText(review.chase.date)}, with Research Finder.` : "[To complete, for example with Review tools › Citation search.]"],
     ["Contacts", "[To complete: authors, experts or others contacted.]"],
-    ["Other methods", "[To complete.]"],
+    ["Other methods", review.similar ? `Similar-article searching: OpenAlex's related works of ${plural(review.similar.seeds.length, "study", "studies")}, on ${esc(dateText(review.similar.date))}, with Research Finder (“More like these”). [Add any other methods.]` : "[To complete.]"],
     ["Full search strategies", "“Keywords” and “Queries sent” above: every term and translation, and each query exactly as sent."],
     ["Limits and restrictions", `${limits ? esc(limits) : "None."} [Give the reason for each limit.]`],
     ["Search filters", f.designs.length ? `OpenAlex's automatic study-design tags (not a validated search filter): ${esc(f.designs.map((d) => DESIGN_NAMES[d]).join(", "))}.` : "None."],
     ["Prior work", "[To complete: searches of earlier reviews that were adapted.]"],
-    ["Updates", "[To complete: for example, the search run again from the link at the end of this document.]"],
+    ["Updates", "To update the search, Research Finder (Settings › Earlier saves) runs the same queries again and adds only the new records to this folder, with a note below. [Say when and how often the search was run again.]"],
     ["Dates of searches", esc(day)],
     ["Peer review", "[To complete: for example, a PRESS peer review of the strategy.]"],
     ["Total records", `${studies ? "OpenAlex" : "The repositories"}: ${fmt(total)}${c.duplicates != null ? `; ${fmt(nRows)} after duplicates within the search were removed` : `; ${fmt(nRows)} saved`}.`],
@@ -1083,6 +1377,7 @@ function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
     studies ? `<li><b>Study designs.</b> OpenAlex's automatic tags (a classifier reading the title and abstract; at least 96% precision by OpenAlex's benchmark, recall not reported) were shown${f.designs.length ? " and used as a filter" : ""}.</li>` : "",
     english && english.shown ? `<li><b>Machine translation of titles.</b> ${fmt(english.shown)} titles in other languages translated into English by MinT and checked by back-translation, to help screening.</li>` : "",
     check ? `<li><b>Validation.</b> The search was checked against ${plural(check.works.length, "known study", "known studies")} (see “Search validation”).</li>` : "",
+    review.similar ? `<li><b>Similar studies.</b> OpenAlex's related works, chosen by a machine-learned similarity of titles, abstracts and venues, suggested ${plural(review.similar.records.length, "study", "studies")} like ${plural(review.similar.seeds.length, "study", "studies")} of the reviewers' (“More like these”, ${esc(dateText(review.similar.date))}).</li>` : "",
     `<li><b>Deduplication</b> within the search by exact DOI or OpenAlex ID.</li>`,
   ].filter(Boolean).join("");
   return `<h2>PRISMA 2020 flow diagram</h2>
@@ -1158,6 +1453,7 @@ ${english && english.foreign ? `<h2>Titles in other languages</h2>
 ${checks ? checksHtml(checks) : ""}
 ${state.tab === "studies" && review.check && review.check.signature === searchSignature() ? checkHtml(review.check, esc) : ""}
 ${review.chase ? chaseNote(review.chase) : ""}
+${review.similar ? similarNote(review.similar) : ""}
 ${reportingHtml(nRows, savedAll, gotNotes, english, checks, filters)}
 <p>Repeat the search: ${esc(location.href)}</p>
 </body></html>`;
@@ -1238,6 +1534,17 @@ function openSettings() {
       : r.pdf ? "Connected: OSF and figshare files, and the open-access PDFs publishers do not let browsers download, are copied into your Drive through it."
         : "Connected: OSF and figshare files are copied into your Drive through it. This relay runs older code: replace it with the current code (below) and deploy it again, and it fetches publishers' PDFs too.");
   };
+  const lib = library();
+  const resolver = h("input", { type: "url", id: "set-resolver", autocomplete: "off", spellcheck: "false", value: lib.resolver, placeholder: "https://… (optional)" });
+  const proxy = h("input", { type: "url", id: "set-proxy", autocomplete: "off", spellcheck: "false", value: lib.proxy, placeholder: "https://…/login?url= (optional)" });
+  const libStatus = h("p", { class: "note", role: "status" });
+  const libCheck = () => {
+    const a = resolver.value.trim(), b = proxy.value.trim();
+    fill(libStatus, [a && !resolverBase(a) ? "The link resolver's address is not a web address. " : "",
+      b && !proxyBase(b) ? "The proxy's address is not a web address. " : ""].join("") || (resolverBase(a) || proxyBase(b) ? "Each study shows its library links after you close Settings." : ""));
+  };
+  resolver.addEventListener("change", libCheck);
+  proxy.addEventListener("change", libCheck);
   const drive = !driveConfigured()
     ? h("p", { class: "note" }, "Saving to Google Drive is not set up on this copy of the site.")
     : driveConnected()
@@ -1261,6 +1568,13 @@ function openSettings() {
     h("label", { class: "f-option" }, h("input", { type: "checkbox", checked: checksOn(), onchange: (e) => local.set("updates", e.target.checked ? null : false) }),
       "Check the studies shown with Crossref"),
     h("p", { class: "note" }, "Research Finder sends the DOIs of the studies shown, and of the studies you save, to Crossref, whose update notices include the Retraction Watch database, and marks the ones that were retracted, withdrawn, corrected or given an expression of concern. Without this check, only OpenAlex's own retraction flag is shown."),
+    h("h3", {}, "Your library (optional)"),
+    h("p", { class: "note" }, "Studies behind a paywall can be opened through your university's subscriptions. With your library's link resolver, each study has a link “Find it at my library”; with its proxy, a link “Through my library” that opens the publisher's page signed in with your library account. Both addresses are kept only in this browser, and nothing is sent anywhere until you click a link."),
+    h("label", { for: "set-resolver", class: "tools-label" }, "Link resolver (OpenURL)"), resolver,
+    h("p", { class: "note" }, "Its address is on your library's website, often under “link resolver”, “OpenURL”, SFX, 360 Link or Alma. Or, if Google Scholar shows your library's link next to its results (Settings › Library links), copy one of those links and paste it here: Research Finder keeps only your library's part of it."),
+    h("label", { for: "set-proxy", class: "tools-label" }, "Proxy (EZproxy or OpenAthens)"), proxy,
+    h("p", { class: "note" }, "The start of the address your library uses to open publishers' pages, usually ending in “login?url=” or “?url=”; or paste a whole link that goes through it."),
+    libStatus,
     h("h3", {}, "Google Drive"), drive, earlier,
     h("h3", {}, h("label", { for: "set-relay" }, "File relay (optional)")),
     h("p", { class: "note" }, "OSF and figshare do not let web pages download their files, and neither do many publishers for their open-access PDFs, so Research Finder lists those with their links. A file relay copies them into your Drive too: a small program that you run on your own free Cloudflare account. It fetches each file and passes it straight on, keeping nothing. You decide whether to set one up; its address is kept only in this browser."),
@@ -1279,11 +1593,13 @@ function openSettings() {
     h("p", { class: "note" }, "Without a key, OpenAlex shares a free allowance of about 100 searches a day among everyone on your network, and limits free searches when it is busy. Each keyword takes one search to read how studies word it, and a search with many translations is split into up to 3 OpenAlex searches. A free personal key (",
       link("https://openalex.org/settings/api", "get one"), ") allows ten times more, up to 8 searches for one, and is not slowed down. It is kept only in this browser."), key,
     h("h3", {}, "Other services"),
-    h("p", { class: "note" }, "No other keys are needed. Wikidata, Wikimedia's MinT translation, Crossref, DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE are free and open. Machine translations are remembered in this browser, so each term and title is translated only once. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one. The replications come from a copy of the FORRT Replication Database that this site keeps, so looking them up sends nothing anywhere."));
+    h("p", { class: "note" }, "No other keys are needed. Wikidata, Wikimedia's MinT translation, Crossref, the DOI Foundation's citation formatter, DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE are free and open. Machine translations are remembered in this browser, so each term and title is translated only once. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one. The replications come from a copy of the FORRT Replication Database that this site keeps, so looking them up sends nothing anywhere."));
   if (relay.value.trim()) check();
   d.onclose = () => {
     local.set("relay", relay.value.trim());
     local.set("openalexKey", key.value.trim());
+    local.set("libResolver", resolverBase(resolver.value));
+    local.set("libProxy", proxyBase(proxy.value));
     renderGroups();
     if (state.groups.length) search(0);
   };
@@ -1360,9 +1676,13 @@ function renderAbout() {
     h("h3", {}, "Checks on the studies"),
     h("p", {}, "Each study shows the design OpenAlex tags automatically from its title and abstract (randomized controlled trial, observational study, systematic review, meta-analysis, study protocol and others), and the filter “Study design” finds them; the tags are rarely wrong, but many studies have none. Studies that were retracted, withdrawn, corrected or given an expression of concern are marked, from Crossref's update notices, which include the Retraction Watch database. Studies with replication attempts recorded in the FORRT Replication Database, most of them in psychology, list them with their outcomes."),
     h("h3", {}, "Review tools"),
-    h("p", {}, "“Check your search” takes studies the search should find, such as known eligible studies, and shows which ones it retrieves (its relative recall) and why it misses the others. “Citation search” finds the references of your included studies and the studies that cite them, in OpenAlex's citation index. “What your results cite most” lists the works your best-matching results cite most often and marks the ones your search does not find."),
+    h("p", {}, "The review tools start from your studies: the ones you add with “☆ Add to your studies” under each result, or paste by DOI, PubMed ID or OpenAlex ID. “Check your search” shows which of them the search retrieves (its relative recall) and why it misses the others. “Citation search” finds their references and the studies that cite them, in OpenAlex's citation index. “More like these” finds the studies most similar to them, from OpenAlex's lists of similar works, and marks the ones your search misses. “What your results cite most” lists the works your best-matching results cite most often and marks the ones your search does not find."),
+    h("h3", {}, "References and your library"),
+    h("p", {}, "“Cite” under a study gives its reference in APA or any of more than 2,700 citation styles, formatted by the DOI Foundation's citation formatter from the data registered with its DOI; a study without a DOI gets an APA reference made from OpenAlex's data. Export gives the results as RIS, BibTeX or CSL-JSON, or as a reference list, and the page carries COinS data for the Zotero Connector. With your library's link resolver or proxy under Settings, each study links to its full text through your library's subscriptions."),
     h("h3", {}, "What is saved"),
     h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source, each study's design tag, retractions and corrections, and replications, and an automatic English translation of titles in other languages), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
+    h("h3", {}, "Running a search again"),
+    h("p", {}, "Each save also keeps “Research Finder search.json”: the exact queries, the filters, and which results were saved. Settings › Earlier saves runs those queries again and adds to the folder only the records it did not have, as “New results” with the date, with their open PDFs, a note in “Search details” and the studies saved before that have since been retracted. Saves made before 12 November 2026 are run again from the queries in their “Search details”."),
     h("h3", {}, "Reporting a search"),
     h("p", {}, "The document “Search details” in each saved folder has what a methods section and a search appendix need:"),
     h("ul", {},
@@ -1410,7 +1730,7 @@ function toHash() {
 
 function fromHash() {
   const raw = location.hash.slice(1);
-  if (raw === "about") return raw;
+  if (raw === "about" || raw === "earlier") return raw;
   const p = new URLSearchParams(raw);
   const list = (k) => (p.get(k) || "").split(",").filter(Boolean);
   const f = state.filters;
@@ -1446,7 +1766,13 @@ function start() {
   renderFilters();
   if (state.input) setQuery(state.input);
   else search(0);
-  if (panel) { renderAbout(); $("#about").hidden = false; }
+  showPanel(panel);
+}
+
+/* The panel an address asks for: #about (how it works) or #earlier (Earlier saves, from a reminder). */
+function showPanel(panel) {
+  if (panel === "about") { renderAbout(); $("#about").hidden = false; }
+  if (panel === "earlier" && driveConfigured()) openEarlier();
 }
 
 window.addEventListener("popstate", () => {
@@ -1454,7 +1780,7 @@ window.addEventListener("popstate", () => {
   renderTabs();
   renderFilters();
   setQuery(state.input, true);
-  if (panel) { renderAbout(); $("#about").hidden = false; }
+  showPanel(panel);
 });
 onDriveChange((on) => {
   const b = $("#drive-btn");

@@ -631,12 +631,22 @@ dialog::backdrop { background: rgb(10 12 10 / 55%); }
 .save-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .save-row select { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 10px; background: var(--surface); max-width: 100%; }
 .save-row input[type="checkbox"] { accent-color: var(--text); }
-.save-actions { display: flex; gap: 8px; margin-top: 16px; }
+.save-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .save-progress { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14.5px; }
 .save-progress p { margin: 0; }
 .why-list { margin: 6px 0 10px; padding-left: 20px; color: var(--text-2); font-size: 14px; }
 .why-list li { margin: 2px 0; }
 #earlier-pick { flex: 1 1 260px; min-width: 0; max-width: 100%; }
+.cite-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 12px; font-weight: 650; }
+.cite-row select, .cite-row input { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 10px; background: var(--surface); color: var(--text); font: 400 14.5px var(--sans); max-width: 100%; }
+.cite-row input { flex: 1 1 220px; min-width: 0; }
+.refs { background: var(--surface-2); border-radius: 10px; padding: 4px 16px; margin-top: 4px; user-select: text; }
+.refs p { margin: 12px 0; line-height: 1.5; padding-left: 2em; text-indent: -2em; overflow-wrap: anywhere; }
+.refs .ref-local { border-left: 3px solid var(--warm); margin-left: -12px; padding-left: calc(2em + 9px); }
+.cite-files { margin-top: 18px; }
+.r-links .link-btn { font-weight: 650; }
+.r-links .mine[aria-pressed="true"] { color: var(--warm-ink); text-decoration: none; }
+.dialog-inner label + input[type="url"] { margin-top: 2px; }
 .relay-row { display: flex; align-items: center; gap: 8px; }
 .relay-row input { flex: 1; min-width: 0; margin-top: 0 !important; }
 .relay-guide { margin-top: 10px; font-size: 14px; }

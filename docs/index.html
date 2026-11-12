@@ -13,9 +13,9 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=36">
-  <script type="module" src="js/main.js?v=36"></script>
-  <script type="module" src="js/landing.js?v=36"></script>
+  <link rel="stylesheet" href="style.css?v=37">
+  <script type="module" src="js/main.js?v=37"></script>
+  <script type="module" src="js/landing.js?v=37"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -145,10 +145,11 @@
               <li><h4>A search string built from the literature</h4><p>For each keyword it reads the 200 best-matching studies and collects the other wordings they use. You keep or drop every term.</p></li>
               <li><h4>Past the language bias</h4><p>Every term is searched in 39 more languages. Each translation is checked by translating it back, and you see all of them.</p></li>
               <li><h4>Grey literature, against publication bias</h4><p>Preprints, theses, reports, study registrations and datasets are searched next to journal articles.</p></li>
-              <li><h4>Records ready for screening</h4><p>Every record with its abstract, each study once: a Google Sheet for your team and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote.</p></li>
+              <li><h4>Records ready for screening</h4><p>Every record with its abstract, each study once: a Google Sheet for your team and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote, or BibTeX and CSL-JSON.</p></li>
               <li><h4>Retractions, designs and replications marked</h4><p>Retracted, withdrawn and corrected studies are flagged from Crossref and Retraction Watch, trials, observational studies and reviews carry OpenAlex’s design tags, and studies with replication attempts list them.</p></li>
               <li><h4>Full texts and data for coding</h4><p>A link to every open PDF, the files themselves where they can be fetched, and open datasets for effect sizes a paper does not report.</p></li>
-              <li><h4>The search, checked</h4><p>Paste studies the search should find and see which it misses, and why: its relative recall. Search the citations of your included studies, backward and forward, and find the studies your results cite that the search does not.</p></li>
+              <li><h4>The search, checked</h4><p>Paste studies the search should find and see which it misses, and why: its relative recall. Search the citations of your included studies, backward and forward, find studies like them, and find the studies your results cite that the search does not.</p></li>
+              <li><h4>The search, kept up to date</h4><p>Run a saved search again with the same queries, and only the new records are added to its folder, with a list of the studies saved before that have since been retracted. A calendar reminder brings you back every month.</p></li>
               <li><h4>The search, documented</h4><p>Sources, date, every term and translation, filters, the exact queries and the record counts, the PRISMA-S items, a methods paragraph, what was automated, and a PRISMA 2020 flow diagram with the numbers filled in.</p></li>
               <li><h4>A head start in your other databases</h4><p>Copy the Boolean string to adapt for Scopus, Web of Science or PsycINFO, or open it in PubMed, Google Scholar or BASE.</p></li>
             </ul>
@@ -181,7 +182,8 @@
               <li><h4>Start from the existing reviews</h4><p>One filter shows the review articles: 69 of them for “trust in science”.</p></li>
               <li><h4>Landmark papers and the newest ones</h4><p>Sort by citations or by date, and filter by year, type and open access.</p></li>
               <li><h4>Find the neighboring topics</h4><p>Related phrases, the studies’ own keywords and the topics most often studied with yours are one click away.</p></li>
-              <li><h4>Read and cite from one place</h4><p>Every result with its abstract in one sheet, and a RIS file that loads the references into Zotero, EndNote or Mendeley.</p></li>
+              <li><h4>Read and cite from one place</h4><p>Every result with its abstract in one sheet, references in APA or any of more than 2,700 citation styles, and RIS, BibTeX or CSL-JSON files for Zotero, EndNote, Mendeley or LaTeX.</p></li>
+              <li><h4>Paywalled studies, through your library</h4><p>Add your university library’s link resolver or proxy under Settings, and every study links to its full text through your library’s subscriptions.</p></li>
             </ul>
           </div>
           <figure class="exhibit">
@@ -407,7 +409,7 @@ ER  - </code></pre>
           </details>
           <details>
             <summary>Can it check my search, or search citations?</summary>
-            <p>Yes, under Review tools above the results. “Check your search” takes studies you know the search should find, by DOI or PubMed ID, and shows which ones it retrieves, its relative recall, and for each one it misses the probable reason: a missing term, a filter, or no abstract in OpenAlex. “Citation search” finds the references of your included studies and the studies that cite them, from OpenAlex’s citation index, and saves them with a record of what was searched. “What your results cite most” lists the works your best-matching results cite, and marks the ones your search misses: often key studies worded differently.</p>
+            <p>Yes, under Review tools above the results. They start from “your studies”: the ones you add with “☆ Add to your studies” under each result, from any search, or paste by DOI or PubMed ID. “Check your search” shows which of them the search retrieves, its relative recall, and for each one it misses the probable reason: a missing term, a filter, or no abstract in OpenAlex. “Citation search” finds their references and the studies that cite them, from OpenAlex’s citation index, and saves them with a record of what was searched. “More like these” finds studies similar to yours, from OpenAlex’s lists of similar works, and marks the ones your search misses. “What your results cite most” lists the works your best-matching results cite, and marks the ones your search misses: often key studies worded differently.</p>
           </details>
           <details>
             <summary>Does it show retracted studies and replications?</summary>
@@ -416,6 +418,18 @@ ER  - </code></pre>
           <details>
             <summary>Can it find trials, reviews or observational studies?</summary>
             <p>Yes, with the filter “Study design”. OpenAlex tags seven designs automatically from a study’s title and abstract: randomized controlled trials, clinical trials, observational studies, case reports, systematic reviews, meta-analyses and study protocols. The tags are rarely wrong, but many studies have none, including every study without an abstract, so use the filter to find studies, not to leave any out of a review.</p>
+          </details>
+          <details>
+            <summary>Can I open paywalled studies through my library?</summary>
+            <p>Yes. Under Settings, add your library’s link resolver (its OpenURL address, which your library’s website gives, or which you can copy from a library link in Google Scholar) or its proxy (EZproxy or OpenAthens). Each study then has “Find it at my library” or “Through my library”, which open it through your library’s subscriptions. The addresses stay in your browser, and nothing is sent anywhere until you click a link.</p>
+          </details>
+          <details>
+            <summary>Can I cite the results, or put them in Zotero?</summary>
+            <p>Yes. “Cite” under a study gives its reference in APA, MLA, Chicago, Harvard, Vancouver or any other of more than 2,700 citation styles, formatted from the data registered with its DOI. Export gives the results shown as RIS, BibTeX or CSL-JSON, or as a reference list in one style. The page also marks each study in the COinS format, which the Zotero Connector reads, so its button in your browser can save the studies shown.</p>
+          </details>
+          <details>
+            <summary>Can I run a saved search again later?</summary>
+            <p>Yes: Settings › Earlier saves › “Run it again and add what is new”. Research Finder runs the same queries with the same filters and adds to the save’s folder only the records it did not have, as a sheet and a RIS file “New results” with the date, with their open PDFs and a note in “Search details”: how many records it found, how many were new, and which studies saved before have since been retracted. Cochrane reviews must run their searches again within 12 months before publication; a calendar reminder can bring you back every month.</p>
           </details>
           <details>
             <summary>Why are some PDFs saved and others only linked?</summary>

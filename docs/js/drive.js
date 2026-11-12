@@ -8,9 +8,12 @@
        Results.ris        the same results for reference managers and screening tools (Zotero, Rayyan, Covidence...)
        Files             Google Sheet: every file found, with its download link and whether it was saved
        Search details     Google Doc: where and how the search was made (keywords, every term, filters, the queries)
+       PRISMA flow diagram.svg
+       Research Finder search.json   the search and which results were saved, to run it again and add what is new
        Papers/            the open PDFs the browser may download
-       Datasets/<title>/  the open data files of each dataset */
-import { CONFIG } from "../config.js?v=36";
+       Datasets/<title>/  the open data files of each dataset
+     and, each time the search is run again, "New results <date>" (a sheet and a RIS file) with only the new ones. */
+import { CONFIG } from "../config.js?v=37";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -251,14 +254,30 @@ async function copyFiles(jobs, { folderId, folders = {}, maxFile, maxTotal, onPr
 }
 
 const FILES_HEADER = ["Result no.", "Result", "File", "Size (MB)", "Repository", "Download link", "Saved in Drive", "Not saved because"];
+export const RECORD = "Research Finder search.json";
+
+/* A table as a Google Sheet; one too large for Google to turn into a sheet is kept as a CSV file instead (csv: true). */
+async function table(name, list, parent) {
+  const blob = new Blob([csvOf(list)], { type: "text/csv" });
+  try {
+    return { ...(await upload({ name, mimeType: SHEET, parents: [parent] }, blob)), csv: false };
+  } catch (e) {
+    if (/sign-in/.test(e.message)) throw e;
+    return { ...(await upload({ name: `${name}.csv`, parents: [parent] }, blob)), csv: true };
+  }
+}
+const fileRows = (jobs) => [FILES_HEADER,
+  ...jobs.map((j) => [j.row + 1, j.title, j.name, j.size ? (j.size / 1e6).toFixed(2) : "", j.repo || "", j.source || j.urls[0] || "", j.link || "", j.link ? "" : j.why || ""])];
+const jsonBlob = (x) => new Blob([JSON.stringify(x, null, 1)], { type: "application/json" });
 
 /* jobs: [{ row, kind: "paper" | "data", urls, source, name, title, dataset, size, repo, copy }], every file found
    (copy: false when its repository does not let browsers download it and no file relay is connected: listed only;
    urls: the addresses to try in turn, some of them through the file relay; source: the file's own address); rows: the
    CSV's data rows, one per result (the "Saved in Drive" column is added here); ris: the same results as a RIS file, for
-   reference managers and screening tools. extras: other files for the folder, [{ name, type, text }]. onSignIn: called
-   when the sign-in runs out; resolves once connected again. */
-export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, extras = [], maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
+   reference managers and screening tools. extras: other files for the folder, [{ name, type, text }]. record: what
+   Research Finder needs to run the search again (saved as RECORD). onSignIn: called when the sign-in runs out;
+   resolves once connected again. */
+export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, extras = [], record = null, maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
   signIn = onSignIn;
   try {
     const root = await appFolder();
@@ -267,32 +286,20 @@ export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, 
     const saved = rows.map(() => []);
     for (const j of jobs) if (j.link) saved[j.row].push(j.link);
     onProgress("Saving the results as a Google Sheet…");
-    let csv = false;
-    // a table too large for Google to turn into a sheet is kept as a CSV file instead
-    const table = async (name, list) => {
-      const blob = new Blob([csvOf(list)], { type: "text/csv" });
-      try {
-        return await upload({ name, mimeType: SHEET, parents: [folder.id] }, blob);
-      } catch (e) {
-        if (/sign-in/.test(e.message)) throw e;
-        csv = true;
-        return upload({ name: `${name}.csv`, parents: [folder.id] }, blob);
-      }
-    };
-    const sheet = await table("Results", [[...header, "Saved in Drive"], ...rows.map((r, i) => [...r, saved[i].join(" | ")])]);
+    const sheet = await table("Results", [[...header, "Saved in Drive"], ...rows.map((r, i) => [...r, saved[i].join(" | ")])], folder.id);
     if (ris) await upload({ name: "Results.ris", parents: [folder.id] }, new Blob([ris], { type: "application/x-research-info-systems" }));
     let files = null;
     if (jobs.length) {
       onProgress("Listing every file in a sheet…");
-      files = await table("Files", [FILES_HEADER,
-        ...jobs.map((j) => [j.row + 1, j.title, j.name, j.size ? (j.size / 1e6).toFixed(2) : "", j.repo || "", j.source || j.urls[0] || "", j.link || "", j.link ? "" : j.why || ""])]);
+      files = await table("Files", fileRows(jobs), folder.id);
     }
     onProgress("Writing the search details…");
     const html = typeof detailsHtml === "function" ? detailsHtml({ papers, dataFiles, bytes, failed, relayed }) : detailsHtml;
     const doc = await upload({ name: "Search details", mimeType: DOC, parents: [folder.id] }, new Blob([html], { type: "text/html" }));
     for (const x of extras) await upload({ name: x.name, parents: [folder.id] }, new Blob([x.text], { type: x.type }));
+    if (record) await upload({ name: RECORD, parents: [folder.id] }, jsonBlob(record));
     return { folder: folder.webViewLink, sheet: sheet.webViewLink, files: files && files.webViewLink, doc: doc.webViewLink,
-      papers, dataFiles, bytes, failed, relayed, csv };
+      papers, dataFiles, bytes, failed, relayed, csv: sheet.csv || Boolean(files && files.csv) };
   } finally {
     signIn = null;
   }
@@ -331,12 +338,27 @@ export async function readSave(save) {
   const rowsOf = async (f) => {
     try { return f ? parseCsv(await tableText(f)) : null; } catch (e) { if (/sign-in/.test(e.message)) throw e; return null; }
   };
+  const recordFile = kids.find((f) => f.name === RECORD) || null;
+  let record = null;
+  if (recordFile) {
+    try { record = JSON.parse(await (await apiRaw(`/drive/v3/files/${recordFile.id}?alt=media`)).text()); } catch (e) { if (/sign-in/.test(e.message)) throw e; }
+  }
   return {
     ...save, files, results, papers: folder("Papers"), datasets,
     details: kids.find((f) => f.name === "Search details" && f.mimeType === DOC) || null,
     datasetFolders: datasets ? (await children(datasets.id)).filter((f) => f.mimeType === FOLDER) : [],
     fileRows: await rowsOf(files), resultRows: await rowsOf(results),
+    recordFile, record,
+    // the sheets of earlier runs ("New results <date>"), whose results count as found before too
+    added: await Promise.all(kids.filter((f) => /^New results \d{4}-\d{2}-\d{2}/.test(f.name) && !/\(files\)/.test(f.name) && (f.mimeType === SHEET || /\.csv$/.test(f.name)))
+      .map(async (f) => ({ file: f, rows: await rowsOf(f) }))),
   };
+}
+
+/* A save's "Search details" as plain text ("" when it has none). */
+export async function detailsText(save) {
+  if (!save.details) return "";
+  return (await apiRaw(`/drive/v3/files/${save.details.id}/export?mimeType=text%2Fplain`)).text();
 }
 
 /* A table with new rows; when Google does not take them in place, the new table is saved next to the old one. */
@@ -403,6 +425,54 @@ export async function fillSave({ save, jobs, maxFile, maxTotal, note, onProgress
         const doc = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${more}</body>`) : html + more;
         await replaceContent(save.details.id, new Blob([doc], { type: "text/html" }));
         out.details = true;
+      } catch (e) {
+        if (/sign-in/.test(e.message)) throw e;
+        out.detailsError = e.message;
+      }
+    }
+    return out;
+  } finally {
+    signIn = null;
+  }
+}
+
+/* A search run again: the new results go into the save's folder as "<name>" (a sheet and a RIS file, and their files
+   in Papers/ or Datasets/), with a note at the end of "Search details" (`note(stats)`, HTML) and the save's record
+   (RECORD) replaced by `record`. */
+export async function addToSave({ save, name, header, rows, ris, jobs, maxFile, maxTotal, note, record, extras = [], onProgress = () => {}, onSignIn = null }) {
+  signIn = onSignIn;
+  try {
+    const folders = {};
+    if (save.papers) folders.papers = Promise.resolve(save.papers.id);
+    if (save.datasets) folders.datasets = Promise.resolve(save.datasets.id);
+    for (const f of save.datasetFolders) folders[`d:${f.name}`] = Promise.resolve(f.id);
+    const stats = await copyFiles(jobs, { folderId: save.id, folders, maxFile, maxTotal, onProgress });
+    const saved = rows.map(() => []);
+    for (const j of jobs) if (j.link) saved[j.row].push(j.link);
+    let sheet = null;
+    if (rows.length) {
+      onProgress("Saving the new results as a Google Sheet…");
+      sheet = await table(name, [[...header, "Saved in Drive"], ...rows.map((r, i) => [...r, saved[i].join(" | ")])], save.id);
+      if (ris) await upload({ name: `${name}.ris`, parents: [save.id] }, new Blob([ris], { type: "application/x-research-info-systems" }));
+    }
+    const files = jobs.length ? await table(`${name} (files)`, fileRows(jobs), save.id) : null;
+    for (const x of extras) await upload({ name: x.name, parents: [save.id] }, new Blob([x.text], { type: x.type }));
+    const out = { ...stats, sheet, files };
+    if (record) {
+      try {
+        if (save.recordFile) await replaceContent(save.recordFile.id, jsonBlob(record));
+        else out.recordFile = await upload({ name: RECORD, parents: [save.id] }, jsonBlob(record));
+      } catch (e) {
+        if (/sign-in/.test(e.message)) throw e;
+        out.recordError = e.message;
+      }
+    }
+    if (save.details && note) {
+      onProgress("Noting it in “Search details”…");
+      try {
+        const html = await (await apiRaw(`/drive/v3/files/${save.details.id}/export?mimeType=text%2Fhtml`)).text();
+        const more = note(stats);
+        await replaceContent(save.details.id, new Blob([/<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${more}</body>`) : html + more], { type: "text/html" }));
       } catch (e) {
         if (/sign-in/.test(e.message)) throw e;
         out.detailsError = e.message;

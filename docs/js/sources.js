@@ -3,8 +3,8 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=36";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=36";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=37";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=37";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
@@ -98,7 +98,7 @@ const interleave = (lists) => {
 const OA_TYPES = { article: "a", preprint: "p", review: "v", book: "b", "book-chapter": "b", monograph: "b", dataset: "d",
   dissertation: "t", editorial: "a", letter: "a" };
 const OA_FILTER_TYPES = { a: "article", p: "preprint", v: "review", b: "book|book-chapter", d: "dataset", t: "dissertation" };
-const OA_FIELDS = "id,doi,display_name,publication_year,publication_date,type,language,primary_location,best_oa_location,open_access,authorships,keywords,abstract_inverted_index,cited_by_count,is_retracted,study_designs";
+const OA_FIELDS = "id,doi,display_name,publication_year,publication_date,type,language,primary_location,best_oa_location,open_access,authorships,keywords,abstract_inverted_index,cited_by_count,is_retracted,study_designs,biblio";
 
 /* The whole abstract (the page shows its start; the sheets and the RIS file get all of it). */
 function abstractOf(inv) {
@@ -122,6 +122,10 @@ function fromOpenAlex(w) {
     open: !!(w.open_access || {}).is_oa, cited: w.cited_by_count || 0,
     retracted: Boolean(w.is_retracted), designs: (w.study_designs || []).map((d) => String(d.id || "").split("/").pop()).filter(Boolean),
     oa: oaId(w.id), refs: (w.referenced_works || []).map(oaId), pmid: oaId(((w.ids || {}).pmid) || ""),
+    related: (w.related_works || []).map(oaId),
+    // for references and library links: the journal's ISSN, the volume, issue and pages, the publisher
+    issn: src.issn_l || (src.issn || [])[0] || "", volume: (w.biblio || {}).volume || "", issue: (w.biblio || {}).issue || "",
+    fpage: (w.biblio || {}).first_page || "", lpage: (w.biblio || {}).last_page || "", publisher: src.host_organization_name || "",
   };
 }
 const oaId = (url) => String(url || "").split("/").pop();
@@ -210,9 +214,11 @@ export const studies = {
      study once). Without a key OpenAlex pages through the first 10,000 results of a query; with one, its cursor goes
      to the end. A part that fails stops; when OpenAlex refuses (the day's allowance is spent), everything stops.
      `notes` says what happened. */
-  async *all(q, notes = []) {
+  async *all(q, notes = [], { queries = null, info = null } = {}) {
     const cursor = Boolean(local.get("openalexKey", ""));
-    const parts = studies.queries(q).parts.map((search) => ({ search, next: cursor ? "*" : 1, done: false }));
+    // `queries`: the exact searches of an earlier save, to run it again as it was; `info.total`: how many results the
+    // searches have (a study two of them find counts twice), set once each has answered
+    const parts = (queries || studies.queries(q).parts).map((search) => ({ search, next: cursor ? "*" : 1, done: false, count: null }));
     const seen = new Set();
     while (parts.some((s) => !s.done)) {
       const answers = await Promise.allSettled(parts.map(async (s, i) => {
@@ -222,6 +228,10 @@ export const studies = {
         if (cursor) p.set("cursor", s.next); else p.set("page", String(s.next));
         const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 60000, cacheable: false });
         const items = (j.results || []).map(fromOpenAlex);
+        if (s.count == null) {
+          s.count = j.meta.count;
+          if (info) info.total = parts.reduce((sum, x) => sum + (x.count || 0), 0);
+        }
         if (cursor) {
           s.next = j.meta.next_cursor;
           s.done = !s.next || !items.length;
@@ -280,7 +290,7 @@ export const studies = {
 };
 
 /* ------------------------------------------------------------------ OpenAlex: works by identifier, and their citations */
-const WORK_FIELDS = `${OA_FIELDS},referenced_works,ids`;
+const WORK_FIELDS = `${OA_FIELDS},referenced_works,related_works,ids`;
 
 /* Works by DOI, PubMed ID or OpenAlex ID, 100 to a request (a list, 1 credit: a tenth of a search). */
 export async function worksByIds({ dois = [], pmids = [], ids = [] }) {
@@ -537,11 +547,12 @@ export const datasets = {
   },
   /* For saving: every dataset, 200 from each repository a page, each dataset once, until the repositories have no more
      (Zenodo and DataCite page through their first 10,000). */
-  async *all(q, notes = []) {
+  async *all(q, notes = [], { info = null } = {}) {
     const seen = new Set();
     for (let page = 1; page <= 100; page++) {
       const res = await datasets.search(q, page, 200);
       notes.push(...(res.notes || []));
+      if (info && page === 1) { info.total = res.total; info.totals = res.totals; }
       yield res.items.filter((r) => firstOf(r, seen));
       if (!res.more || !res.items.length) return;
     }
