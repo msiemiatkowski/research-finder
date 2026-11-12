@@ -1,20 +1,20 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=41";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON } from "./util.js?v=41";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS } from "./terms.js?v=41";
+import { CONFIG } from "../config.js?v=42";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON } from "./util.js?v=42";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS } from "./terms.js?v=42";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=41";
-import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle, englishTitles,
-  SAVE_TRANSLATIONS } from "./translate.js?v=41";
+  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=42";
+import { translationsOn, readingLanguage, translateFrom, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle,
+  englishTitles, saveLimit } from "./translate.js?v=42";
 import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave, addToSave, detailsText,
-  RECORD } from "./drive.js?v=41";
+  RECORD } from "./drive.js?v=42";
 import { DESIGN_NAMES, designsOf, designText, checksOn, checkUpdates, updatesOf, updatesText, SERIOUS, loadReplications, replicationsDate,
-  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate } from "./checks.js?v=41";
-import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount, parseIds } from "./review.js?v=41";
-import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=41";
-import { openZotero, keyForm } from "./zotero.js?v=41";
-import { openCombine } from "./combine.js?v=41";
-import { openScreening } from "./screen.js?v=41";
+  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate } from "./checks.js?v=42";
+import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount, parseIds } from "./review.js?v=42";
+import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=42";
+import { openZotero, keyForm } from "./zotero.js?v=42";
+import { openCombine } from "./combine.js?v=42";
+import { openScreening } from "./screen.js?v=42";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8, trials: 25, regional: 10 };
@@ -310,8 +310,15 @@ function marked(text, re) {
 const link = (href, text, title) => h("a", { href, target: "_blank", rel: "noopener noreferrer", title }, text);
 
 const MT_NOTE = "Made by Wikimedia's open machine translation (MinT). It can be wrong: read the original before you include or exclude a study.";
+/* The language results are translated into (Settings), by name: "English", "Polish". */
+const readName = () => languageName(readingLanguage());
+/* From a third language into another than English, translations go through English. */
+const through = (from) => (from !== "en" && readingLanguage() !== "en" ? " (through English)" : "");
+const THROUGH_NOTE = " Translations from a third language go through English, which machine translation does best.";
+const translatingTitles = () => (readingLanguage() === "en" ? "Translating the titles in other languages into English" : `Translating the titles into ${readName()}`);
 
-/* A title in another language, in English: [the translation], said to be an automatic one. */
+/* A title in another language, in the reader's (English, unless Settings say otherwise): [the translation], said to
+   be an automatic one. */
 function titleInEnglish(r, from) {
   const line = h("p", { class: "r-en" });
   const show = (t) => {
@@ -321,27 +328,29 @@ function titleInEnglish(r, from) {
         `No reliable automatic translation of this ${languageName(from)} title`));
       return;
     }
-    fill(line, h("span", { class: "tr-text", lang: "en" }, "[", marked(t.text, highlight), "]"), " ",
-      h("span", { class: "tr-tag", title: `${MT_NOTE} It was checked by translating it back.` }, `Automatic translation from ${languageName(from)}, not a professional one`));
+    fill(line, h("span", { class: "tr-text", lang: readingLanguage(), dir: "auto" }, "[", marked(t.text, highlight), "]"), " ",
+      h("span", { class: "tr-tag", title: `${MT_NOTE} It was checked by translating it back.${through(from) ? THROUGH_NOTE : ""}` },
+        `Automatic translation from ${languageName(from)}${through(from)}, not a professional one`));
   };
   const known = knownTitle(from, r.title);
   if (known && known.ok && !known.text) return null;
   if (known) show(known);
   else {
-    fill(line, h("span", { class: "tr-wait" }, "Translating the title into English…"));
+    fill(line, h("span", { class: "tr-wait" }, `Translating the title into ${readName()}…`));
     translateTitle(from, r.title).then(show);
   }
   return line;
 }
 
-/* A button that translates the whole abstract into English, and the box it shows the translation in. */
+/* A button that translates the whole abstract into the reader's language, and the box it shows the translation in. */
 function englishAbstract(r, from) {
-  const box = h("div", { class: "abstract-en", lang: "en", hidden: true });
-  const button = h("button", { type: "button", class: "link-btn", "aria-expanded": "false" }, "English translation");
+  const label = `${readName()} translation`;
+  const box = h("div", { class: "abstract-en", lang: readingLanguage(), dir: "auto", hidden: true });
+  const button = h("button", { type: "button", class: "link-btn", "aria-expanded": "false" }, label);
   button.addEventListener("click", async () => {
     if (!box.hidden) {
       box.hidden = true;
-      button.textContent = "English translation";
+      button.textContent = label;
       button.setAttribute("aria-expanded", "false");
       return;
     }
@@ -350,8 +359,9 @@ function englishAbstract(r, from) {
       button.textContent = "Translating…";
       const text = await translateText(from, r.full || r.abstract);
       button.disabled = false;
-      if (!text) { button.textContent = "English translation"; toast("The translation service did not answer. Try again in a moment.", 4000); return; }
-      fill(box, h("p", { class: "tr-tag", title: MT_NOTE }, `Automatic translation of the abstract from ${languageName(from)}, not a professional one`),
+      if (!text) { button.textContent = label; toast("The translation service did not answer. Try again in a moment.", 4000); return; }
+      fill(box, h("p", { class: "tr-tag", title: `${MT_NOTE}${through(from) ? THROUGH_NOTE : ""}`, dir: "ltr", lang: "en" },
+        `Automatic translation of the abstract from ${languageName(from)}${through(from)}, not a professional one`),
         h("p", {}, marked(text, highlight)));
     }
     box.hidden = false;
@@ -361,11 +371,12 @@ function englishAbstract(r, from) {
   return { box, button };
 }
 
-/* The start of the abstract, the rest of it on request, and its English when it is in another language. */
+/* The start of the abstract, the rest of it on request, and its translation when it is in another language than the
+   reader's. */
 function abstractOf(r) {
   if (!r.abstract) return null;
   const p = h("p", { class: "abstract" });
-  const from = translationsOn() ? languageOf((r.full || r.abstract).slice(0, 600), r.lang) : "";
+  const from = translationsOn() ? translateFrom((r.full || r.abstract).slice(0, 600), r.lang) : "";
   const english = from ? englishAbstract(r, from) : null;
   const more = r.full && r.full.length >= r.abstract.length + 40
     ? h("button", { type: "button", class: "link-btn", "aria-expanded": "false" }, "Whole abstract") : null;
@@ -464,7 +475,7 @@ function renderRecord(r) {
       r.cited ? h("span", { title: "Times cited" }, `${fmt(r.cited)} citations`) : null,
       r.files && r.files.length ? h("span", { title: "Open data files" }, plural(r.files.length, "file")) : null,
       h("span", { class: "src" }, r.source)),
-    h("h3", { lang: from || null }, href ? link(href, marked(r.title, highlight)) : h("span", {}, marked(r.title, highlight))),
+    h("h3", { lang: from || (/^[a-z]{2,3}$/.test(r.lang || "") && r.lang !== "en" ? r.lang : null) }, href ? link(href, marked(r.title, highlight)) : h("span", {}, marked(r.title, highlight))),
     from ? titleInEnglish(r, from) : null,
     [r.authors, r.venue].filter(Boolean).length ? h("div", { class: "byline" }, [r.authors, r.venue].filter(Boolean).join(" · ")) : null,
     box,
@@ -602,8 +613,11 @@ const externalMenu = () => menu("Search elsewhere ▾", [
 ]);
 
 /* One row per result, the same columns for every source; while translations are on, a title in another language has
-   its English next to it; studies have their design, retraction or corrections, and replications after their type. */
-const EN_TITLE = "Title in English (automatic translation)";
+   its translation next to it (into English, or the language chosen in Settings); studies have their design,
+   retraction or corrections, and replications after their type. */
+const enTitle = () => `Title in ${readName()} (automatic translation)`;
+/* Registrations are in English: they get the column only when titles are translated into another language. */
+const titleColumn = (tab = state.tab) => translationsOn() && (tab !== "trials" || readingLanguage() !== "en");
 const COLUMNS = ["No.", "Title", "Abstract", "Authors", "Year", "Type", "Journal or repository", "DOI", "Link", "Open PDF", "Language", "Keywords", "Source", "Citations", "License", "Size"];
 const CHECK_COLUMNS = ["Study design (automatic tag)", "Retraction or correction", "Replications (FReD)", "Journal (DOAJ, hijacked journals)"];
 const TRIAL_COLUMNS = ["Status", "Phase", "Study type", "Results posted", "Participants", "Start", "Completion", "Conditions", "Interventions", "Countries", "Publications (PMIDs)", "Other IDs"];
@@ -611,7 +625,7 @@ function header(en, checks, tab = state.tab) {
   const row = [...COLUMNS];
   if (tab === "trials") row.splice(6, 0, ...TRIAL_COLUMNS);
   else if (checks) row.splice(6, 0, ...CHECK_COLUMNS);
-  if (en) row.splice(2, 0, EN_TITLE);
+  if (en) row.splice(2, 0, enTitle());
   return row;
 }
 const trialCells = (r) => [STATUS_LABEL[r.status] || r.status || "", phaseText(r), CT_TYPES[r.studyType] || r.studyType || "", r.results ? "yes" : "no",
@@ -632,10 +646,10 @@ function rowOf(r, i, en, checks, tab = state.tab) {
    Covidence, ASReview) import. */
 const RIS_TYPES = { article: "JOUR", review: "JOUR", editorial: "JOUR", letter: "JOUR", preprint: "UNPB", book: "BOOK", monograph: "BOOK",
   "book-chapter": "CHAP", dissertation: "THES", dataset: "DATA" };
-function risOf(records, en = translationsOn(), checks = state.tab === "studies", more = () => []) {
+function risOf(records, en = titleColumn(), checks = state.tab === "studies", more = () => []) {
   const tag = (t, v) => (v == null || v === "" ? "" : `${t}  - ${String(v).replace(/\s+/g, " ").trim()}\r\n`);
-  // the English of a title goes into a note that says what it is (Zotero would file a "translated title" unlabelled)
-  const english = (r) => { const t = en ? englishTitle(r) : ""; return t ? `Title in English, an automatic translation (Wikimedia MinT), not a professional one: ${t}` : ""; };
+  // the translation of a title goes into a note that says what it is (Zotero would file a "translated title" unlabelled)
+  const english = (r) => { const t = en ? englishTitle(r) : ""; return t ? `Title in ${readName()}, an automatic translation (Wikimedia MinT), not a professional one: ${t}` : ""; };
   const note = (label, text) => (checks && text ? `${label}: ${text}` : "");
   return records.map((r) => [
     tag("TY", r.kind === "d" ? "DATA" : RIS_TYPES[r.type] || "GEN"),
@@ -669,15 +683,15 @@ function risOf(records, en = translationsOn(), checks = state.tab === "studies",
   ].join("")).join("\r\n");
 }
 
-/* The results as a file for reference managers: RIS, BibTeX or CSL-JSON, with the same notes (an English title, a
+/* The results as a file for reference managers: RIS, BibTeX or CSL-JSON, with the same notes (a translated title, a
    retraction or correction). */
 const REF_FILES = { ris: ["ris", "application/x-research-info-systems"], bib: ["bib", "application/x-bibtex"], csl: ["json", "application/vnd.citationstyles.csl+json"] };
-/* Notes that go with a reference: its English title, a retraction or correction, a hijacked journal, a registration's status. */
-const refNotes = (en, checks) => (r) => [en && englishTitle(r) ? `Title in English, an automatic translation (Wikimedia MinT), not a professional one: ${englishTitle(r)}` : "",
+/* Notes that go with a reference: its translated title, a retraction or correction, a hijacked journal, a registration's status. */
+const refNotes = (en, checks) => (r) => [en && englishTitle(r) ? `Title in ${readName()}, an automatic translation (Wikimedia MinT), not a professional one: ${englishTitle(r)}` : "",
   checks && updatesText(r) ? `Retraction or correction (Crossref, Retraction Watch): ${updatesText(r)}` : "",
   checks && hijackOf(r) ? `Journal warning: ${journalText(r)}` : "",
   r.kind === "r" ? `Registered study (${STATUS_LABEL[r.status] || r.status || "status not given"})` : ""].filter(Boolean);
-function refsText(records, format, en = translationsOn(), checks = state.tab === "studies") {
+function refsText(records, format, en = titleColumn(), checks = state.tab === "studies") {
   if (format === "ris") return risOf(records, en, checks);
   const notes = refNotes(en, checks);
   if (format === "bib") return bibtexOf(records, { notes, language: (r) => (r.lang === "en" ? "English" : LANG_NAMES[r.lang] || r.lang || "") });
@@ -700,10 +714,10 @@ function downloadFile(name, text, type, message) {
 const csvCell = (v) => { const s = String(v == null ? "" : v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const fileDate = () => new Date().toISOString().slice(0, 10);
 
-/* Before an export, the English of the titles in other languages among the results shown (most are translated already). */
+/* Before an export, the translations of the titles among the results shown (most are translated already). */
 async function englishFirst(records) {
-  if (!translationsOn()) return;
-  const slow = setTimeout(() => toast("Translating the titles in other languages into English…", 10000), 500);
+  if (!titleColumn()) return;
+  const slow = setTimeout(() => toast(`${translatingTitles()}…`, 10000), 500);
   try { await englishTitles(records); } finally { clearTimeout(slow); }
 }
 
@@ -716,7 +730,7 @@ async function checksFirst(records) {
 async function exportCsv() {
   await englishFirst(results);
   await checksFirst(results);
-  const en = translationsOn() && state.tab !== "trials", checks = state.tab === "studies";
+  const en = titleColumn(), checks = state.tab === "studies";
   const cell = (v) => { const s = String(v == null ? "" : v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const csv = [header(en, checks), ...results.map((r, i) => rowOf(r, i, en, checks))].map((r) => r.map(cell).join(",")).join("\r\n");
   downloadFile(`research-finder-${fileDate()}.csv`, "﻿" + csv, "text/csv;charset=utf-8");
@@ -732,7 +746,7 @@ const toolsCtx = {
   async exportRecords(records, { extraName, extraOf, name, format }) {
     await englishFirst(records);
     await checksFirst(records);
-    const en = translationsOn(), message = `Exported ${state.tab === "data" ? plural(records.length, "dataset") : plural(records.length, "study", "studies")}`;
+    const en = titleColumn(), message = `Exported ${state.tab === "data" ? plural(records.length, "dataset") : plural(records.length, "study", "studies")}`;
     if (format === "zotero") {
       const what = { "citation-search": "Citation search", "similar-studies": "Similar studies", "your-studies": "Your studies", "cited-by-results": "Cited by the results" }[name];
       openZotero(records, { name: `${what ? `${what}: ` : ""}${state.input || "Research Finder"} — ${fileDate()}`, notes: refNotes(en, state.tab === "studies") });
@@ -749,8 +763,8 @@ const toolsCtx = {
   async saveRecords({ title, records, extraName, extraOf, details, progress }) {
     if (!driveConfigured()) throw new Error("saving to Google Drive is not set up on this copy of the site");
     if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
-    const english = translationsOn()
-      ? await englishTitles(records, { onProgress: (n, of) => progress(`Translating the titles in other languages into English: ${fmt(n)} of ${fmt(of)}…`) }) : null;
+    const english = titleColumn()
+      ? await englishTitles(records, { onProgress: (n, of) => progress(`${translatingTitles()}: ${fmt(n)} of ${fmt(of)}…`) }) : null;
     await checkAll(records, progress);
     const en = Boolean(english);
     return saveSearch({
@@ -810,7 +824,7 @@ const screenCtx = {
   current: () => (results.length && state.groups.length ? { name: state.input, shown: results.length, total,
     terms: [...new Set(groupsForSearch().flat().map((t) => t.text))] } : null),
   collect: (count, progress) => collect(count, progress),
-  english: async (rows) => rows.map((r) => ({ ...r, en: translationsOn() ? englishTitle(r) : "" })),
+  english: async (rows) => rows.map((r) => ({ ...r, en: titleColumn() ? englishTitle(r) : "" })),
   download: (name, text, type, message) => downloadFile(name, text, type, message),
   ris: (records, notes) => risOf(records, false, false, notes),
   prisma: (c) => prismaSvg(c),
@@ -1023,7 +1037,7 @@ function openSave() {
       h("li", {}, h("strong", {}, "Results"), " — a Google Sheet: one row per result with its abstract, the same columns for every source, with links to the files saved",
         studiesTab ? `, each study's design as OpenAlex tags it${checksOn() ? ", retractions and corrections, hijacked journals" : ""} and replications` : "",
         state.tab === "trials" ? ", each registration's status, phase, study type, whether results are posted, participants, dates, conditions, interventions, countries and publications" : "",
-        translationsOn() && state.tab !== "trials" ? ", and an automatic English translation of titles in other languages" : ""),
+        titleColumn() ? `, and an automatic ${readName()} translation of titles in other languages` : ""),
       h("li", {}, h("strong", {}, "Results.ris"), " — the same results as a reference file, to import into Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview"),
       trialsTab ? null : h("li", {}, h("strong", {}, "Files"), " — a Google Sheet with every file found: its download link, and whether it was saved (and if not, why)"),
       h("li", {}, h("strong", {}, "Search details"), " — a document with your keywords, every term and translation used, the filters and the exact queries, so the search can be repeated, with the PRISMA-S items, a methods paragraph and the automated steps to report"),
@@ -1099,8 +1113,8 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
   try {
     if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
     const { rows, notes: gotNotes } = await collect(count, progress);
-    const english = translationsOn() && state.tab !== "trials"
-      ? await englishTitles(rows, { onProgress: (n, of) => progress(`Translating the titles in other languages into English: ${fmt(n)} of ${fmt(of)}…`) }) : null;
+    const english = titleColumn()
+      ? await englishTitles(rows, { onProgress: (n, of) => progress(`${translatingTitles()}: ${fmt(n)} of ${fmt(of)}…`) }) : null;
     const checks = state.tab === "studies";
     if (checks) await checkAll(rows, progress);
     const jobs = withFiles ? await fileJobs(rows, state.tab, progress) : [];
@@ -1392,8 +1406,8 @@ async function runAgain(s, rec, withFiles, go, box, signinBox) {
     const fresh = rows.filter((r) => !keysOf(r).some((k) => before.has(k)));
     const now = new Set(rows.flatMap(keysOf));
     const gone = earlier.filter((ks) => !ks.some((k) => now.has(k))).length;
-    const english = translationsOn() && fresh.length
-      ? await englishTitles(fresh, { onProgress: (n, of) => progress(`Translating the titles in other languages into English: ${fmt(n)} of ${fmt(of)}…`) }) : null;
+    const english = titleColumn() && fresh.length
+      ? await englishTitles(fresh, { onProgress: (n, of) => progress(`${translatingTitles()}: ${fmt(n)} of ${fmt(of)}…`) }) : null;
     let changed = [];
     if (studies) {
       await loadReplications();
@@ -1653,7 +1667,7 @@ function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
     machine ? `<li><b>Machine translation of the terms.</b> ${fmt(machine)} terms translated by Wikimedia's MinT (open neural machine translation models) on ${esc(day)}, each translated back into English as a check${doubted ? `; ${fmt(doubted)} that did not come back with the same meaning were left out` : ""}. [Say whether someone who reads the language checked them.]</li>` : "",
     `<li><b>Ranking.</b> ${studies ? "OpenAlex's" : trials ? "ClinicalTrials.gov's" : regional ? "The databases'" : "The repositories'"} relevance order${savedAll ? ": all results were saved, so it did not decide which records were kept" : `: only the first ${fmt(nRows)} in that order were saved`}.</li>`,
     studies ? `<li><b>Study designs.</b> OpenAlex's automatic tags (a classifier reading the title and abstract; at least 96% precision by OpenAlex's benchmark, recall not reported) were shown${f.designs.length ? " and used as a filter" : ""}.</li>` : "",
-    english && english.shown ? `<li><b>Machine translation of titles.</b> ${fmt(english.shown)} titles in other languages translated into English by MinT and checked by back-translation, to help screening.</li>` : "",
+    english && english.shown ? `<li><b>Machine translation of titles.</b> ${fmt(english.shown)} titles ${readingLanguage() === "en" ? "in other languages translated into English" : `translated into ${esc(readName())} (from a third language through English)`} by MinT and checked by back-translation, to help screening.</li>` : "",
     check ? `<li><b>Validation.</b> The search was checked against ${plural(check.works.length, "known study", "known studies")} (see “Search validation”).</li>` : "",
     review.similar ? `<li><b>Similar studies.</b> OpenAlex's related works, chosen by a machine-learned similarity of titles, abstracts and venues, suggested ${plural(review.similar.records.length, "study", "studies")} like ${plural(review.similar.seeds.length, "study", "studies")} of the reviewers' (“More like these”, ${esc(dateText(review.similar.date))}).</li>` : "",
     `<li><b>Deduplication</b> within the search by exact DOI or OpenAlex ID.</li>`,
@@ -1741,7 +1755,7 @@ ${gotNotes.length ? `<p>${gotNotes.map(esc).join(" ")}</p>` : ""}
 ${state.tab === "trials" ? "" : `<p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / MB).toFixed(1)} MB), of ${fmt(nJobs)} found; the sheet “Files” lists every one.${listedOnly ? ` ${fmt(listedOnly)} are in repositories that do not let browsers download files (OSF, figshare): the sheet has their download links.` : ""}${stats.relayed ? ` ${fmt(stats.relayed)} of the files saved came through the file relay ${esc(relayAddress())}, because their sites do not let browsers download them.` : ""}</p>`}
 ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
 ${english && english.foreign ? `<h2>Titles in other languages</h2>
-<p>${fmt(english.foreign)} of the results saved have a title in another language. ${fmt(english.shown)} of them have an automatic English translation in the column “${EN_TITLE}” of “Results”, and in a note in “Results.ris”, made by Wikimedia's open machine translation (MinT) and checked by translating it back into the original language${english.failed ? `; ${fmt(english.failed)} did not pass that check and have none` : ""}${english.same ? `; ${fmt(english.same)} needed none, as their title says it in English too` : ""}${english.missing ? `; ${fmt(english.missing)} were not translated, because MinT did not answer or a save translates at most ${fmt(SAVE_TRANSLATIONS)}` : ""}. These are machine translations, not professional ones: use them to see what a study is about, and the original titles to screen and to cite.</p>` : ""}
+<p>${fmt(english.foreign)} of the results saved have a title in ${readingLanguage() === "en" ? "another language" : `a language other than ${esc(readName())}`}. ${fmt(english.shown)} of them have an automatic ${esc(readName())} translation in the column “${esc(enTitle())}” of “Results”, and in a note in “Results.ris”, made by Wikimedia's open machine translation (MinT)${readingLanguage() === "en" ? "" : ", through English for titles in a third language,"} and checked by translating it back${english.failed ? `; ${fmt(english.failed)} did not pass that check and have none` : ""}${english.same ? `; ${fmt(english.same)} needed none, as their title says it in ${esc(readName())} too` : ""}${english.missing ? `; ${fmt(english.missing)} were not translated, because MinT did not answer or a save translates at most ${fmt(saveLimit())}` : ""}. These are machine translations, not professional ones: use them to see what a study is about, and the original titles to screen and to cite.</p>` : ""}
 ${checks ? checksHtml(checks) : ""}
 ${state.tab === "studies" && review.overview && review.overview.signature === searchSignature() ? overviewHtml(review.overview) : ""}
 ${state.tab === "studies" && review.check && review.check.signature === searchSignature() ? checkHtml(review.check, esc) : ""}
@@ -1837,6 +1851,16 @@ function renderFilters() {
 }
 
 /* ------------------------------------------------------------------ settings, about */
+/* The languages results can be translated into: English and the 39 the search uses, the browser's own marked. */
+function readSelect() {
+  const own = (navigator.languages || [navigator.language || ""]).map((l) => { const b = String(l).toLowerCase().split("-")[0]; return b === "nb" || b === "nn" ? "no" : b; })
+    .find((l) => l === "en" || LANG_NAMES[l]);
+  const now = readingLanguage();
+  return h("select", { id: "set-read", onchange: (e) => local.set("readLang", e.target.value === "en" ? null : e.target.value) },
+    [["en", "English"], ...Object.entries(LANG_NAMES).sort((a, b) => a[1].localeCompare(b[1], "en"))].map(([code, name]) =>
+      h("option", { value: code, selected: code === now }, code === own && code !== "en" ? `${name} (your browser's language)` : name)));
+}
+
 function openSettings() {
   const d = $("#settings");
   const key = h("input", { type: "password", autocomplete: "off", value: local.get("openalexKey", ""), placeholder: "optional", id: "set-key" });
@@ -1884,8 +1908,9 @@ function openSettings() {
     langs,
     h("h3", {}, "Results in other languages"),
     h("label", { class: "f-option" }, h("input", { type: "checkbox", checked: translationsOn(), onchange: (e) => local.set("titlesEn", e.target.checked ? null : false) }),
-      "Show their titles with an English translation"),
-    h("p", { class: "note" }, "An automatic translation in [brackets] under each title in another language, and a button that translates its abstract. Wikimedia's MinT makes them, the open service that translates your keywords, and each title's translation is checked by translating it back. They are machine translations, not professional ones: enough to see what a study is about, not to quote."),
+      "Show their titles with a translation"),
+    h("label", { for: "set-read", class: "tools-label" }, "Translate into"), readSelect(),
+    h("p", { class: "note" }, "An automatic translation in [brackets] under each title in another language, a button that translates its abstract, and a column of translated titles in saves and exports. Wikimedia's MinT makes them, the open service that translates your keywords, and each title's translation is checked by translating it back. Into a language other than English, titles and abstracts in a third language go through English, which machine translation does best; quality still varies with the languages. The page itself stays in English. Machine translations, not professional ones: enough to see what a study is about, not to quote."),
     h("h3", {}, "Retractions, corrections and hijacked journals"),
     h("label", { class: "f-option" }, h("input", { type: "checkbox", checked: checksOn(), onchange: (e) => local.set("updates", e.target.checked ? null : false) }),
       "Check the studies shown with Crossref and Retraction Watch"),
@@ -2001,7 +2026,7 @@ function renderAbout() {
       h("li", {}, h("strong", {}, "Translations. "), "Every English term is translated into 39 languages by Wikimedia's open machine translation (MinT), and each translation is translated back into English as a check: one that does not come back with the same meaning is left out."),
       h("li", {}, h("strong", {}, "The search. "), "All the terms become one Boolean query (OR within a keyword, AND between keywords), split into several queries when it is longer than a service takes. Studies come from OpenAlex; datasets from DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE.")),
     h("h3", {}, "Results in other languages"),
-    h("p", {}, "A title in another language is shown with an automatic English translation in [brackets], and “English translation” under its abstract translates the abstract, both by Wikimedia's MinT. Each title's translation is translated back into the original language as a check: one that has almost nothing in common with the original, as machine translation sometimes writes for a short title, is not shown. They are machine translations, not professional ones, for a first look at what a study is about; Settings can turn them off."),
+    h("p", {}, "A title in another language is shown with an automatic English translation in [brackets], and “English translation” under its abstract translates the abstract, both by Wikimedia's MinT. In Settings you can choose another language to translate into, any of the 39 the search uses: then every title not in that language gets a translation, and titles and abstracts in a third language are translated through English, which machine translation does best. Each title's translation is translated back as a check: one that has almost nothing in common with the original, as machine translation sometimes writes for a short title, is not shown. They are machine translations, not professional ones, for a first look at what a study is about; Settings can turn them off."),
     h("h3", {}, "Checks on the studies"),
     h("p", {}, "Each study shows the design OpenAlex tags automatically from its title and abstract (randomized controlled trial, observational study, systematic review, meta-analysis, study protocol and others), and the filter “Study design” finds them; the tags are rarely wrong, but many studies have none. Studies that were retracted, withdrawn, corrected or given an expression of concern are marked, from Crossref's update notices, which include the Retraction Watch database. Studies with replication attempts recorded in the FORRT Replication Database, most of them in psychology, list them with their outcomes."),
     h("h3", {}, "Review tools"),
@@ -2019,7 +2044,7 @@ function renderAbout() {
     h("h3", {}, "References and your library"),
     h("p", {}, "“Cite” under a study gives its reference in APA or any of more than 2,700 citation styles, formatted by the DOI Foundation's citation formatter from the data registered with its DOI; a study without a DOI gets an APA reference made from OpenAlex's data. Export gives the results as RIS, BibTeX or CSL-JSON, or as a reference list, or sends them to your Zotero library with a key of your own, and the page carries COinS data for the Zotero Connector. Studies in journals listed in the Directory of Open Access Journals carry a DOAJ badge, and studies on the websites of hijacked journals (fake copies of real journals, from Retraction Watch's list) are flagged. With your library's link resolver or proxy under Settings, each study links to its full text through your library's subscriptions."),
     h("h3", {}, "What is saved"),
-    h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source, each study's design tag, retractions and corrections, and replications, and an automatic English translation of titles in other languages), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
+    h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source, each study's design tag, retractions and corrections, and replications, and an automatic translation of titles in other languages, into English or the language you choose in Settings), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
     h("h3", {}, "Running a search again"),
     h("p", {}, "Each save also keeps “Research Finder search.json”: the exact queries, the filters, and which results were saved. Settings › Earlier saves runs those queries again and adds to the folder only the records it did not have, as “New results” with the date, with their open PDFs, a note in “Search details” and the studies saved before that have since been retracted. Saves made before 12 November 2026 are run again from the queries in their “Search details”."),
     h("h3", {}, "Reporting a search"),

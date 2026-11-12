@@ -1,13 +1,16 @@
-/* English for results in other languages: a title's translation is shown under it in [brackets], and an abstract is
-   translated when asked. Both come from Wikimedia's open machine translation (MinT), the service that translates the
+/* Translations of results in other languages, into English or the language the reader chooses (Settings): a title's
+   translation is shown under it in [brackets], and an abstract is translated when asked. Both come from Wikimedia's open machine translation (MinT), the service that translates the
    search terms, and the page says wherever it shows one that it is an automatic translation, not a professional one:
    enough to see what a study is about, not to quote it or to decide on it.
    A title's translation is checked by translating it back. For a short title, machine translation sometimes writes a
    sentence of its own ("The report also highlights…"); a translation whose back-translation shares too little with
    the original, or that opens or repeats itself the way those sentences do, is tried again (as a sentence or not, then
-   after the word for "title"), and if it still fails it is not shown. */
-import { local, norm } from "./util.js?v=41";
-import { LANG_NAMES, MINT, mint } from "./terms.js?v=41";
+   after the word for "title"), and if it still fails it is not shown.
+   Into a language other than English, a title or abstract in a third language goes through English, which machine
+   translation does far better: Chinese and Japanese titles translated straight into Polish often come out as
+   sentences of their own, and through English they mostly do not. */
+import { local, norm } from "./util.js?v=42";
+import { LANG_NAMES, MINT, mint } from "./terms.js?v=42";
 
 const MIN_OVERLAP = 0.2;       // share of the original's letter groups its back-translation must have
 const SUSPECT_OVERLAP = 0.4;   // the same, for a translation that looks made up
@@ -15,6 +18,11 @@ const CHUNK = 16;              // titles in one request
 const ENDS = /[.!?。！？…]$/;
 
 export const translationsOn = () => local.get("titlesEn", true) !== false;
+/* The language results are translated into: English, or another the reader chooses. */
+export const readingLanguage = () => {
+  const l = local.get("readLang", "en");
+  return l === "en" || LANG_NAMES[l] ? l : "en";
+};
 
 let names = null;
 /* "Polish" for pl, and the name of any other language the browser knows. */
@@ -217,51 +225,79 @@ function finish(title, text) {
 }
 
 /* ------------------------------------------------------------------ translating titles */
-let memo = null;               // "pl|title" -> [English, 1 when it passed the check]
+let memo = null;               // "pl|title" (into English) or "en>pl|title" -> [translation, 1 when it passed the check]
 const memory = () => memo || (memo = new Map(Object.entries(local.get("tt", {}))));
+const memoKey = (lang, title, to = readingLanguage()) => (to === "en" ? `${lang}|${title}` : `${lang}>${to}|${title}`);
 const remember = () => local.set("tt", Object.fromEntries([...memory()].slice(-1500)));
 const failing = new Map();     // language -> requests that went unanswered this session
 
 /* A title translated before: {text, ok}; text is "" when there is nothing to add to the title. */
 export function knownTitle(lang, title) {
-  const v = memory().get(`${lang}|${title}`);
+  const v = memory().get(memoKey(lang, title));
   return v ? { text: v[0], ok: Boolean(v[1]) } : undefined;
 }
 
-async function attempt(lang, titles, mode) {
-  let out = await mint(titles.map((t) => prepare(t, lang, mode)), lang, "en");
+async function attempt(lang, titles, mode, to) {
+  let out = await mint(titles.map((t) => prepare(t, lang, mode)), lang, to);
   if (!out) return null;
   // a "titled" translation counts only when it kept the word ("Title: …"), which then goes
   if (mode === "titled") out = out.map((o) => (TITLED.test(o || "") ? o.replace(TITLED, "") : ""));
-  const back = await mint(out.map((o) => o || "-"), "en", lang);
+  const back = await mint(out.map((o) => o || "-"), to, lang);
   return out.map((text, i) => ({ text, score: back ? overlap(titles[i], back[i]) : 1, suspect: suspect(titles[i], text || "") }));
 }
 const passes = (r) => Boolean(r.text) && r.score >= (r.suspect ? SUSPECT_OVERLAP : MIN_OVERLAP);
 
 /* One request for up to CHUNK titles in one language, another to translate them back; a title that fails the check
    is tried again another way: Chinese titles do better as they are, the others with a full stop, and a title that
-   still fails goes after the word for "title". A title the translation only repeats (often an English title filed
-   under another language) has nothing to show. */
-async function translateChunk(lang, titles) {
-  const modes = lang === "zh" ? ["plain", "sentence", "titled"] : ["sentence", "plain", "titled"];
-  const best = await attempt(lang, titles, modes[0]);
+   still fails goes after the word for "title" (into English only). For each title: {text, verdict}, the verdict
+   "same" when the translation only repeats it (often an English title filed under another language), "ok" when it
+   passed the check, "fail" when it did not. */
+async function translateChunk(lang, titles, to) {
+  // the word for "title" is recognised only in English translations
+  const modes = (lang === "zh" ? ["plain", "sentence", "titled"] : ["sentence", "plain", "titled"]).filter((m) => m !== "titled" || to === "en");
+  const best = await attempt(lang, titles, modes[0], to);
   if (!best) return null;
   const same = (r, i) => Boolean(r.text) && !finish(titles[i], r.text);
   for (const mode of modes.slice(1)) {
     if (mode === "titled" && !TITLE_WORD[lang]) break;
     const again = titles.map((t, i) => i).filter((i) => !same(best[i], i) && !passes(best[i]));
     if (!again.length) break;
-    const next = await attempt(lang, again.map((i) => titles[i]), mode);
+    const next = await attempt(lang, again.map((i) => titles[i]), mode, to);
     if (!next) continue;
     again.forEach((i, k) => {
       const r = next[k];
       if (same(r, i) || passes(r) || (r.text && !best[i].text) || (r.score > best[i].score && r.suspect <= best[i].suspect)) best[i] = r;
     });
   }
-  return best.map((r, i) => (same(r, i) ? ["", 1] : passes(r) ? [finish(titles[i], r.text), 1] : ["", 0]));
+  return best.map((r, i) => ({ text: r.text, verdict: same(r, i) ? "same" : passes(r) ? "ok" : "fail" }));
 }
 
-const waiting = new Map();     // "pl|title" -> {lang, title, done: [callbacks]}
+/* What is remembered of each title: [translation, 1], ["", 1] when there is nothing to add, ["", 0] when the
+   translation failed the check; null when the service did not answer. Into English or from English, one step; from a
+   third language, through English: the English translation, checked and remembered as such, is translated in turn
+   and checked against itself. */
+async function translatePair(lang, titles, to) {
+  if (lang === "en" || to === "en") {
+    const res = await translateChunk(lang, titles, to);
+    return res && res.map((r, i) => (r.verdict === "same" ? ["", 1] : r.verdict === "ok" ? [finish(titles[i], r.text), 1] : ["", 0]));
+  }
+  const missing = titles.filter((t) => !memory().has(memoKey(lang, t, "en")));
+  if (missing.length) {
+    const res = await translatePair(lang, missing, "en");
+    if (!res) return null;
+    missing.forEach((t, i) => memory().set(memoKey(lang, t, "en"), res[i]));
+  }
+  // the English of each title; a title its English translation only repeats is in English already
+  const via = titles.map((t) => { const [text, ok] = memory().get(memoKey(lang, t, "en")); return ok ? text || t : null; });
+  const go = titles.map((t, i) => i).filter((i) => via[i] !== null);
+  const res = go.length ? await translateChunk("en", go.map((i) => via[i]), to) : [];
+  if (!res) return null;
+  const out = titles.map(() => ["", 0]);
+  go.forEach((i, k) => { if (res[k].verdict !== "fail") out[i] = [finish(titles[i], res[k].text), 1]; });
+  return out;
+}
+
+const waiting = new Map();     // "pl|title" -> {lang, to, title, done: [callbacks]}
 let flushTimer = 0, running = Promise.resolve();
 
 async function pool(items, n, fn) {
@@ -276,28 +312,29 @@ async function flush() {
   waiting.clear();
   const chunks = [];
   const byLang = new Map();
-  for (const j of jobs) byLang.set(j.lang, [...(byLang.get(j.lang) || []), j]);
-  for (const [lang, list] of byLang) for (let i = 0; i < list.length; i += CHUNK) chunks.push([lang, list.slice(i, i + CHUNK)]);
-  await pool(chunks, 3, async ([lang, list]) => {
-    const res = (failing.get(lang) || 0) >= 2 ? null : await translateChunk(lang, list.map((j) => j.title));
-    if (!res) failing.set(lang, (failing.get(lang) || 0) + 1);
+  for (const j of jobs) byLang.set(`${j.lang}>${j.to}`, [...(byLang.get(`${j.lang}>${j.to}`) || []), j]);
+  for (const list of byLang.values()) for (let i = 0; i < list.length; i += CHUNK) chunks.push([list[0].lang, list[0].to, list.slice(i, i + CHUNK)]);
+  await pool(chunks, 3, async ([lang, to, list]) => {
+    const pair = `${lang}>${to}`;
+    const res = (failing.get(pair) || 0) >= 2 ? null : await translatePair(lang, list.map((j) => j.title), to);
+    if (!res) failing.set(pair, (failing.get(pair) || 0) + 1);
     list.forEach((j, i) => {
       const v = res ? res[i] : null;
-      if (v) memory().set(`${lang}|${j.title}`, v);
+      if (v) memory().set(memoKey(lang, j.title, to), v);
       j.done.forEach((f) => f(v ? { text: v[0], ok: Boolean(v[1]) } : null));
     });
   });
   remember();
 }
 
-/* The English of a title: {text, ok}, or null when the translation service could not be reached. Titles asked for
-   together are sent together, by language. */
+/* A title in the reader's language: {text, ok}, or null when the translation service could not be reached. Titles
+   asked for together are sent together, by language. */
 export function translateTitle(lang, title) {
   const known = knownTitle(lang, title);
   if (known) return Promise.resolve(known);
-  const key = `${lang}|${title}`;
+  const to = readingLanguage(), key = memoKey(lang, title, to);
   return new Promise((resolve) => {
-    const job = waiting.get(key) || { lang, title, done: [] };
+    const job = waiting.get(key) || { lang, to, title, done: [] };
     job.done.push(resolve);
     waiting.set(key, job);
     clearTimeout(flushTimer);
@@ -307,23 +344,40 @@ export function translateTitle(lang, title) {
 
 /* ------------------------------------------------------------------ for sheets and files */
 const langOf = new WeakMap();
-/* The language to translate a record's title from ("" when none), worked out once per record. */
+/* The language to translate a text from into the reader's language: "" when it is in that language already, or when
+   it is not clear. Into another language than English, a text in Latin letters that looks like no other language
+   counts as English. */
+export function translateFrom(text, claimed = "") {
+  const to = readingLanguage();
+  let from = languageOf(text, claimed);
+  if (!from && to !== "en" && text && text !== "(untitled)") {
+    const t = String(text);
+    const latin = (t.match(/\p{Script=Latin}/gu) || []).length, letters = (t.match(/\p{L}/gu) || []).length;
+    if (letters && latin >= 0.6 * letters) from = "en";
+  }
+  return from === to ? "" : from;
+}
+/* The language to translate a record's title from, worked out once per record and reading language. */
 export function titleLanguage(r) {
-  if (!langOf.has(r)) langOf.set(r, languageOf(r.title, r.lang));
-  return langOf.get(r);
+  const to = readingLanguage();
+  if (!langOf.has(r) || langOf.get(r)[0] !== to) langOf.set(r, [to, translateFrom(r.title, r.lang)]);
+  return langOf.get(r)[1];
 }
 
-/* The English of a record's title, when it is in another language and its translation passed the check. */
+/* A record's title in the reader's language, when it is in another language and its translation passed the check
+   (named for English, the first language it translated into). */
 export function englishTitle(r) {
   const from = titleLanguage(r);
   const known = from ? knownTitle(from, r.title) : null;
   return known && known.ok ? known.text : "";
 }
 
-export const SAVE_TRANSLATIONS = 2000;      // titles one save or export translates at most
+/* Titles one save or export translates at most: 2,000 into English, 500 into another language (nearly every title then
+   needs a translation, and each takes a request or two to Wikimedia's service). */
+export const saveLimit = () => (readingLanguage() === "en" ? 2000 : 500);
 /* Translates the titles in other languages of many records (for a save or an export) that are not translated yet, at
    most `max`, and says what became of them all: {foreign, shown, failed, same, missing}. */
-export async function englishTitles(records, { max = SAVE_TRANSLATIONS, onProgress = () => {} } = {}) {
+export async function englishTitles(records, { max = saveLimit(), onProgress = () => {} } = {}) {
   const todo = new Map();
   for (const r of records) {
     const from = titleLanguage(r);
@@ -349,17 +403,22 @@ export async function englishTitles(records, { max = SAVE_TRANSLATIONS, onProgre
 
 /* ------------------------------------------------------------------ translating an abstract */
 const abstracts = new Map();   // for this session
-/* The English of an abstract (its first 6,000 characters), or null when the translation service did not answer. */
-export async function translateText(lang, text) {
+/* An abstract (its first 6,000 characters) in the reader's language, through English from a third language, or null
+   when the translation service did not answer. */
+export async function translateText(lang, text, to = readingLanguage()) {
   text = String(text || "").replace(/\s+/g, " ").trim();
   if (text.length > 6000) text = `${text.slice(0, 6000).replace(/\s+\S*$/, "")} …`;
-  const key = `${lang}|${text}`;
+  if (lang !== "en" && to !== "en") {
+    const english = await translateText(lang, text, "en");
+    return english && translateText("en", english, to);
+  }
+  const key = `${lang}>${to}|${text}`;
   if (abstracts.has(key)) return abstracts.get(key);
   const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 60000);
   try {
-    const r = await fetch(`${MINT}/${lang}/en/MinT`, { method: "POST", body: new URLSearchParams({ html: `<p>${esc(text)}</p>` }), signal: ctrl.signal });
+    const r = await fetch(`${MINT}/${lang}/${to}/MinT`, { method: "POST", body: new URLSearchParams({ html: `<p>${esc(text)}</p>` }), signal: ctrl.signal });
     if (!r.ok) return null;
     const j = await r.json();
     const out = (new DOMParser().parseFromString(j.contents || "", "text/html").body.textContent || "").replace(/\s+/g, " ").trim();

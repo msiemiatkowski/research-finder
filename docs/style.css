@@ -624,6 +624,7 @@ dialog::backdrop { background: rgb(10 12 10 / 55%); }
 .tree li span { color: var(--muted); margin-left: 8px; font: 500 12px var(--mono); }
 .dialog-inner textarea { width: 100%; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: 13.5px/1.5 var(--mono); margin-top: 6px; resize: vertical; }
 .tools-label { display: block; font-weight: 650; margin-top: 14px; }
+#set-read { display: block; margin-top: 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 10px; background: var(--surface); color: var(--text); font: 400 14.5px var(--sans); max-width: 100%; }
 .tools-out { margin-top: 14px; }
 .tools-head { font-size: 16px; line-height: 1.45; }
 .tools-list { margin: 8px 0 0; padding-left: 24px; }

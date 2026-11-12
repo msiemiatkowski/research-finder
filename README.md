@@ -48,8 +48,8 @@ science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; 
   questionnaires and scales (GESIS ZIS and ZPID PsychArchives in DataCite). An overview counts all the results by
   the countries of their authors, the share with an author in the Global South, language, year, type and journal,
   and each bar filters the results (for example to studies with an author in one country). Their titles come with an automatic
-  English translation in [brackets], and an abstract translates with one click, for a first look at what a study is
-  about.
+  English translation in [brackets], or a translation into any of the 39 search languages the visitor chooses, and an
+  abstract translates with one click, for a first look at what a study is about.
 
 ## What is saved
 
@@ -60,8 +60,8 @@ Research Finder/
   <keywords> — <date and time>/
     Results          Google Sheet: one row per result with its abstract, the same columns for every source,
                      with links to the files saved for it, each study's design tag, retractions and
-                     corrections, and replications, and the English of titles in other languages
-                     (automatic translation)
+                     corrections, and replications, and titles in other languages translated into English
+                     or the visitor's language (automatic translation)
     Results.ris      the same results for Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview
     Files            Google Sheet: every file found, with its download link, and whether it was saved
                      (and if not, why)
@@ -136,7 +136,13 @@ limited to the files the app creates (`drive.file`).
    16 to a request, and remembered in the browser. A save, and a CSV or RIS export, translates the titles of all its
    results (up to 2,000 a save) into the column "Title in English (automatic translation)" of "Results" and the CSV,
    and into a note (N1) in the RIS file that says it is an automatic translation; "Search details" counts them.
-   Settings can turn this off.
+   Settings can turn this off, or choose another language to translate into (any of the 39 search languages; the page
+   itself stays in English). Then every title not in that language is translated, English ones included, and the
+   column becomes "Title in Polish (automatic translation)" and so on (up to 500 titles a save, since nearly every
+   title needs one). A title or abstract in a third language goes through English: its English translation, checked
+   as above, is translated in turn and checked by translating it back into English. Machine translation does far
+   better that way: in a small test with research titles, Chinese and Japanese ones translated straight into Polish
+   mostly came out as sentences of their own, and through English they mostly did not.
 7. **Checks on studies.** Every study shows the design OpenAlex tags automatically from its title, journal and
    abstract (`study_designs`: randomized controlled trial, clinical trial, observational study, case report,
    systematic review, meta-analysis, study protocol), and the filter "Study design" searches by it. The DOIs of the
@@ -332,7 +338,7 @@ diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted reference
 folder structure, adding new results to a save), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=41`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=42`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

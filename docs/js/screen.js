@@ -4,8 +4,8 @@
    here; it ranks, it never decides). Stopping checks advise when to stop; two reviewers screen independently and
    exchange files; decisions go to ASReview, Rayyan or Covidence, or to Google Drive. Projects are kept in this
    browser (IndexedDB). */
-import { $, h, fill, fmt, plural, norm, fold, local, toast, parseCsv } from "./util.js?v=41";
-import { readExport } from "./combine.js?v=41";
+import { $, h, fill, fmt, plural, norm, fold, local, toast, parseCsv } from "./util.js?v=42";
+import { readExport } from "./combine.js?v=42";
 
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 const pause = (ms = 0) => new Promise((r) => setTimeout(r, ms));
