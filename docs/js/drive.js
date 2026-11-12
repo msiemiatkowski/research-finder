@@ -10,7 +10,7 @@
        Search details     Google Doc: where and how the search was made (keywords, every term, filters, the queries)
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset */
-import { CONFIG } from "../config.js?v=34";
+import { CONFIG } from "../config.js?v=35";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";

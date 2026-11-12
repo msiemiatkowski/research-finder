@@ -3,8 +3,8 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=34";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=34";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=35";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=35";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
@@ -73,9 +73,8 @@ export function booleanParts(groups, mode, maxLen, maxParts = 1, syntax = LUCENE
 
 function openalexParams() {
   const p = new URLSearchParams();
-  const key = local.get("openalexKey", ""), mail = local.get("email", "");
+  const key = local.get("openalexKey", "");
   if (key) p.set("api_key", key);
-  if (mail) p.set("mailto", mail);
   return p;
 }
 /* OpenAlex searches one search takes: each costs a share of the daily allowance, which a key makes ten times larger. */
@@ -99,7 +98,7 @@ const interleave = (lists) => {
 const OA_TYPES = { article: "a", preprint: "p", review: "v", book: "b", "book-chapter": "b", monograph: "b", dataset: "d",
   dissertation: "t", editorial: "a", letter: "a" };
 const OA_FILTER_TYPES = { a: "article", p: "preprint", v: "review", b: "book|book-chapter", d: "dataset", t: "dissertation" };
-const OA_FIELDS = "id,doi,display_name,publication_year,publication_date,type,language,primary_location,best_oa_location,open_access,authorships,keywords,abstract_inverted_index,cited_by_count";
+const OA_FIELDS = "id,doi,display_name,publication_year,publication_date,type,language,primary_location,best_oa_location,open_access,authorships,keywords,abstract_inverted_index,cited_by_count,is_retracted,study_designs";
 
 /* The whole abstract (the page shows its start; the sheets and the RIS file get all of it). */
 function abstractOf(inv) {
@@ -121,16 +120,18 @@ function fromOpenAlex(w) {
     url: w.doi ? "" : loc.landing_page_url || w.id, pdf: oa.pdf_url || "", lang: w.language || "",
     keywords: (w.keywords || []).map((k) => k.display_name).slice(0, 8), abstract: snippet(full, 400), full,
     open: !!(w.open_access || {}).is_oa, cited: w.cited_by_count || 0,
+    retracted: Boolean(w.is_retracted), designs: (w.study_designs || []).map((d) => String(d.id || "").split("/").pop()).filter(Boolean),
   };
 }
 
-/* Titles and abstracts (a filter search, which is also faster), or with full texts too. */
+/* Titles and abstracts, or with full texts too. */
 function openalexQuery({ filters, sort }, search) {
   const p = openalexParams();
   const f = [];
   if (search && filters.fulltext) p.set("search", search);
-  else if (search) f.push(`title_and_abstract.search:${search.replace(/[,|]/g, " ")}`);
+  else if (search) p.set("search.title_and_abstract", search);
   if (filters.kinds.length) f.push(`type:${filters.kinds.map((k) => OA_FILTER_TYPES[k]).filter(Boolean).join("|")}`);
+  if ((filters.designs || []).length) f.push(`study_designs.id:${filters.designs.join("|")}`);
   if (filters.from || filters.to) f.push(`publication_year:${filters.from || ""}-${filters.to || ""}`);
   if (filters.open) f.push("open_access.is_oa:true");
   if (filters.langs.length) f.push(`language:${filters.langs.join("|")}`);
@@ -171,7 +172,7 @@ export const studies = {
   name: "Studies",
   note: "OpenAlex: 270 million works from every field",
   sorts: [["rel", "Best match"], ["new", "Newest first"], ["cited", "Most cited"]],
-  filters: ["fulltext", "kinds", "years", "open", "langs"],
+  filters: ["fulltext", "kinds", "designs", "years", "open", "langs"],
   kinds: ["a", "p", "v", "b", "d", "t"],
   queries: (q) => booleanParts(q.groups, q.mode, 1450, maxParts()),        // OpenAlex takes up to 1,500 characters
   async search(q, page, size = 25) {

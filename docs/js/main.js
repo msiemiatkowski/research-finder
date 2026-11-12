@@ -1,16 +1,18 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=34";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=34";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=34";
+import { CONFIG } from "../config.js?v=35";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=35";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=35";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=34";
+  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=35";
 import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle, englishTitles,
-  SAVE_TRANSLATIONS } from "./translate.js?v=34";
-import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=34";
+  SAVE_TRANSLATIONS } from "./translate.js?v=35";
+import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave } from "./drive.js?v=35";
+import { DESIGN_NAMES, designsOf, designText, checksOn, checkUpdates, updatesOf, updatesText, SERIOUS, loadReplications, replicationsDate,
+  replicationsOf, replicationText, replicationsCell } from "./checks.js?v=35";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8 };
-const emptyFilters = () => ({ kinds: [], langs: [], from: null, to: null, open: false, repos: [], fulltext: false });
+const emptyFilters = () => ({ kinds: [], designs: [], langs: [], from: null, to: null, open: false, repos: [], fulltext: false });
 const state = {
   input: "", groups: [], mode: "all", tab: "studies", sort: "rel",
   langsOff: new Set(local.get("langsOff", [])), filters: emptyFilters(), showAllLangs: false,
@@ -39,6 +41,7 @@ async function runSearch() {
   page = 1;
   results = [];
   notes = [];
+  slots.clear();
   highlight = highlighter(q.groups.flat().map((t) => t.text));
   document.body.classList.toggle("searching", q.groups.length > 0);
   if (!q.groups.length) {           // nothing to ask the services yet
@@ -95,6 +98,7 @@ function show(res, first) {
   for (const r of fresh) list.append(renderRecord(r));
   $("#more").hidden = !more;
   renderToolbar();
+  runChecks(fresh);
 }
 
 function emptyMessage() {
@@ -372,13 +376,66 @@ function abstractOf(r) {
   return english ? [p, english.box] : p;
 }
 
+/* ------------------------------------------------------------------ checks on studies */
+/* Where each study shown has its retraction badges and the lines under its byline, so that they can be drawn again when
+   Crossref answers and the replication data arrives. */
+const slots = new Map();
+const DESIGN_NOTE = "Study design, tagged automatically by OpenAlex from the title and abstract. The tags are rarely wrong, but many studies have none.";
+const dateText = (d) => (d ? new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "");
+const UPDATE_NOTE = "From Crossref's update notices, which include the Retraction Watch database, or else from OpenAlex.";
+
+function drawChecks({ r, flags, box }) {
+  const { list } = updatesOf(r);
+  const tone = (n) => (SERIOUS.includes(n.kind) ? "flag-serious" : n.kind === "expression_of_concern" ? "flag-concern" : "flag-minor");
+  fill(flags, list.map((n) => h("span", { class: `badge flag ${tone(n)}`, title: UPDATE_NOTE }, n.label)));
+  const lines = [];
+  if (list.length) {
+    lines.push(h("p", { class: `r-update ${tone(list[0])}` }, list.map((n, i) => [i ? " · " : "",
+      h("strong", {}, n.label), n.date ? ` on ${dateText(n.date)}` : "",
+      n.sources[0] === "OpenAlex" ? " according to OpenAlex" : ` (${n.sources.join(", ")})`,
+      n.notice ? [": ", link(`https://doi.org/${n.notice}`, "the notice")] : ""]), "."));
+  }
+  const reps = replicationsOf(r);
+  if (reps) lines.push(replicationBox(reps));
+  fill(box, lines);
+}
+
+/* The replications and reproductions FReD records for a study, folded until opened. */
+function replicationBox(list) {
+  return h("details", { class: "r-repl" },
+    h("summary", {}, h("strong", {}, replicationText(list)), " in the FORRT Replication Database"),
+    h("ul", {}, list.map((x) => h("li", {}, h("span", { class: `oc oc-${x.code}` }, x.outcome), ` · ${x.year || "n.d."} · `, link(x.link, x.title || x.link)))),
+    h("p", { class: "note" }, "Outcomes as FReD records them. Data: ", link("https://forrt.org/replication-hub/", "FORRT Replication Database"),
+      ` (CC BY 4.0), as of ${dateText(replicationsDate())}. A study it does not list may still have been replicated.`));
+}
+
+/* Asks Crossref about the studies just shown and loads the replication data, then draws what they say. */
+async function runChecks(records) {
+  if (state.tab !== "studies" || !records.length) return;
+  const redraw = () => records.forEach((r) => { const s = slots.get(r.key); if (s) drawChecks(s); });
+  await Promise.allSettled([loadReplications().then(redraw), checksOn() ? checkUpdates(records.map((r) => r.doi)).then(redraw) : null]);
+}
+
+/* Before an export or a save: every study checked (Crossref and FReD), with progress for a large save. */
+async function checkAll(records, progress) {
+  if (state.tab !== "studies") return;
+  await loadReplications();
+  if (checksOn()) {
+    await checkUpdates(records.map((r) => r.doi), progress ? (n, of) => progress(`Checking for retractions and corrections: ${fmt(n)} of ${fmt(of)} studies…`) : null);
+  }
+}
+
 function renderRecord(r) {
   const href = r.doi ? `https://doi.org/${r.doi}` : safeUrl(r.url) || safeUrl(r.pdf);
   const lang = r.lang && r.lang !== "en" ? languageName(r.lang) : "";
   const from = translationsOn() ? titleLanguage(r) : "";
+  const studies = state.tab === "studies";
+  const flags = h("span", { class: "r-flags" }), box = h("div", { class: "r-checks" });
   const li = h("li", { class: "result" },
     h("div", { class: "r-top" },
+      flags,
       h("span", { class: `badge kind-${r.kind}` }, KIND_NAMES[r.kind] || "Record"),
+      designsOf(r).map((d) => h("span", { class: "badge design", title: DESIGN_NOTE }, DESIGN_NAMES[d])),
       r.year ? h("span", {}, r.year) : null,
       lang ? h("span", { class: "badge" }, lang) : null,
       r.open ? h("span", { class: "badge open", title: "Free to read or download" }, "Open") : null,
@@ -388,7 +445,13 @@ function renderRecord(r) {
     h("h3", { lang: from || null }, href ? link(href, marked(r.title, highlight)) : h("span", {}, marked(r.title, highlight))),
     from ? titleInEnglish(r, from) : null,
     [r.authors, r.venue].filter(Boolean).length ? h("div", { class: "byline" }, [r.authors, r.venue].filter(Boolean).join(" · ")) : null,
+    box,
     abstractOf(r));
+  if (studies) {
+    const slot = { r, flags, box };
+    slots.set(r.key, slot);
+    drawChecks(slot);
+  }
   if (r.keywords && r.keywords.length) {
     li.append(h("div", { class: "r-kw" }, r.keywords.map((k) => h("button", { type: "button", title: `Search for “${k}”`, onclick: () => setQuery(k) }, k))));
   }
@@ -469,13 +532,20 @@ const externalMenu = () => menu("Search elsewhere ▾", [
 ]);
 
 /* One row per result, the same columns for every source; while translations are on, a title in another language has
-   its English next to it. */
+   its English next to it; studies have their design, retraction or corrections, and replications after their type. */
 const EN_TITLE = "Title in English (automatic translation)";
 const COLUMNS = ["No.", "Title", "Abstract", "Authors", "Year", "Type", "Journal or repository", "DOI", "Link", "Open PDF", "Language", "Keywords", "Source", "Citations", "License", "Size"];
-const header = (en) => (en ? [COLUMNS[0], COLUMNS[1], EN_TITLE, ...COLUMNS.slice(2)] : COLUMNS);
-function rowOf(r, i, en) {
+const CHECK_COLUMNS = ["Study design (automatic tag)", "Retraction or correction", "Replications (FReD)"];
+function header(en, checks) {
+  const row = [...COLUMNS];
+  if (checks) row.splice(6, 0, ...CHECK_COLUMNS);
+  if (en) row.splice(2, 0, EN_TITLE);
+  return row;
+}
+function rowOf(r, i, en, checks) {
   const row = [i + 1, r.title, r.full || r.abstract || "", r.authors, r.year || "", KIND_NAMES[r.kind] || "", r.venue, r.doi ? `https://doi.org/${r.doi}` : "",
     r.url || r.landing || "", r.pdf, r.lang, (r.keywords || []).join("; "), r.source, r.cited || "", r.license || "", r.size || ""];
+  if (checks) row.splice(6, 0, designText(r), updatesText(r), replicationsCell(r));
   if (en) row.splice(2, 0, englishTitle(r));
   return row;
 }
@@ -484,10 +554,11 @@ function rowOf(r, i, en) {
    Covidence, ASReview) import. */
 const RIS_TYPES = { article: "JOUR", review: "JOUR", editorial: "JOUR", letter: "JOUR", preprint: "UNPB", book: "BOOK", monograph: "BOOK",
   "book-chapter": "CHAP", dissertation: "THES", dataset: "DATA" };
-function risOf(records, en = translationsOn()) {
+function risOf(records, en = translationsOn(), checks = state.tab === "studies") {
   const tag = (t, v) => (v == null || v === "" ? "" : `${t}  - ${String(v).replace(/\s+/g, " ").trim()}\r\n`);
   // the English of a title goes into a note that says what it is (Zotero would file a "translated title" unlabelled)
   const english = (r) => { const t = en ? englishTitle(r) : ""; return t ? `Title in English, an automatic translation (Wikimedia MinT), not a professional one: ${t}` : ""; };
+  const note = (label, text) => (checks && text ? `${label}: ${text}` : "");
   return records.map((r) => [
     tag("TY", r.kind === "d" ? "DATA" : RIS_TYPES[r.type] || "GEN"),
     tag("TI", r.title),
@@ -502,6 +573,9 @@ function risOf(records, en = translationsOn()) {
     tag("LA", r.lang === "en" ? "English" : LANG_NAMES[r.lang] || r.lang),
     tag("DB", r.source),
     tag("N1", english(r)),
+    tag("N1", note("Retraction or correction (Crossref, Retraction Watch)", updatesText(r))),
+    tag("N1", note("Study design, tagged automatically by OpenAlex", designText(r))),
+    tag("N1", note("Replications in the FORRT Replication Database (FReD)", replicationsCell(r))),
     "ER  - \r\n",
   ].join("")).join("\r\n");
 }
@@ -522,15 +596,23 @@ async function englishFirst(records) {
   try { await englishTitles(records); } finally { clearTimeout(slow); }
 }
 
+/* Before an export: the studies shown checked with Crossref and FReD (most are by now). */
+async function checksFirst(records) {
+  const slow = setTimeout(() => toast("Checking for retractions and corrections…", 10000), 500);
+  try { await checkAll(records); } finally { clearTimeout(slow); }
+}
+
 async function exportCsv() {
   await englishFirst(results);
-  const en = translationsOn();
+  await checksFirst(results);
+  const en = translationsOn(), checks = state.tab === "studies";
   const cell = (v) => { const s = String(v == null ? "" : v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const csv = [header(en), ...results.map((r, i) => rowOf(r, i, en))].map((r) => r.map(cell).join(",")).join("\r\n");
+  const csv = [header(en, checks), ...results.map((r, i) => rowOf(r, i, en, checks))].map((r) => r.map(cell).join(",")).join("\r\n");
   downloadFile(`research-finder-${fileDate()}.csv`, "﻿" + csv, "text/csv;charset=utf-8");
 }
 async function exportRis() {
   await englishFirst(results);
+  await checksFirst(results);
   downloadFile(`research-finder-${fileDate()}.ris`, risOf(results), "application/x-research-info-systems");
 }
 
@@ -568,6 +650,7 @@ function openSave() {
     h("p", {}, "Research Finder makes a folder for this search in your Google Drive, inside “Research Finder”:"),
     h("ul", { class: "tree" },
       h("li", {}, h("strong", {}, "Results"), " — a Google Sheet: one row per result with its abstract, the same columns for every source, with links to the files saved",
+        studiesTab ? `, each study's design as OpenAlex tags it${checksOn() ? ", retractions and corrections" : ""} and replications` : "",
         translationsOn() ? ", and an automatic English translation of titles in other languages" : ""),
       h("li", {}, h("strong", {}, "Results.ris"), " — the same results as a reference file, to import into Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview"),
       h("li", {}, h("strong", {}, "Files"), " — a Google Sheet with every file found: its download link, and whether it was saved (and if not, why)"),
@@ -644,6 +727,8 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     const { rows, notes: gotNotes } = await collect(count, progress);
     const english = translationsOn()
       ? await englishTitles(rows, { onProgress: (n, of) => progress(`Translating the titles in other languages into English: ${fmt(n)} of ${fmt(of)}…`) }) : null;
+    const checks = state.tab === "studies";
+    if (checks) await checkAll(rows, progress);
     const jobs = [], relay = relayAddress();
     // a relay that fetches publishers' PDFs too (version 2) is asked for every PDF the browser cannot get itself
     const pdfRelay = relay && withFiles && state.tab === "studies" && (await checkRelay(relay)).pdf;
@@ -683,9 +768,9 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     }
     const title = `${state.input} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
     const res = await saveSearch({
-      title, header: header(Boolean(english)), rows: rows.map((r, i) => rowOf(r, i, Boolean(english))), ris: risOf(rows, Boolean(english)), jobs, maxFile,
+      title, header: header(Boolean(english), checks), rows: rows.map((r, i) => rowOf(r, i, Boolean(english), checks)), ris: risOf(rows, Boolean(english), checks), jobs, maxFile,
       maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
-      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes, english),
+      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes, english, checks ? checkStats(rows) : null),
       onSignIn: () => new Promise((resolve, reject) => {
         fill($("#save-signin"), h("p", { class: "note warn" }, "Google's sign-in has run out (it lasts an hour). "),
           h("button", { type: "button", class: "btn btn-small btn-primary", onclick: async () => {
@@ -852,11 +937,42 @@ async function runFill(s, missing, c, studies, maxFile, maxTotal, go, box, signi
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /* The record of the search, so that it can be reported and repeated. */
-function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null) {
+/* What the checks found among the studies saved, for "Search details". */
+function checkStats(rows) {
+  const s = { on: checksOn(), withDoi: 0, checked: 0, serious: 0, concern: 0, corrected: 0, fromOpenAlex: 0, designed: 0, designs: {}, replicated: 0, date: replicationsDate() };
+  for (const r of rows) {
+    if (r.doi) s.withDoi++;
+    const u = updatesOf(r);
+    if (u.checked) s.checked++;
+    if (u.list.some((n) => SERIOUS.includes(n.kind))) s.serious++;
+    if (u.list.some((n) => n.kind === "expression_of_concern")) s.concern++;
+    if (u.list.some((n) => n.label === "Corrected")) s.corrected++;
+    if (u.list.some((n) => n.sources.includes("OpenAlex"))) s.fromOpenAlex++;
+    const ds = designsOf(r);
+    if (ds.length) s.designed++;
+    for (const d of ds) s.designs[d] = (s.designs[d] || 0) + 1;
+    if (replicationsOf(r)) s.replicated++;
+  }
+  return s;
+}
+
+function checksHtml(c) {
+  const designs = Object.keys(DESIGN_NAMES).filter((d) => c.designs[d]).map((d) => `${esc(DESIGN_NAMES[d])} ${fmt(c.designs[d])}`).join("; ");
+  const unchecked = c.withDoi - c.checked;
+  return `<h2>Checks on the studies</h2>
+<p><b>Retractions and corrections</b> (column “Retraction or correction” of “Results”, and a note in “Results.ris”). ${c.on
+    ? `${fmt(c.serious)} of the studies saved are retracted, partly retracted, withdrawn or removed; ${fmt(c.concern)} have an expression of concern; ${fmt(c.corrected)} were corrected. Research Finder asked Crossref, whose update notices include the Retraction Watch database, about the ${fmt(c.withDoi)} studies with a DOI on ${esc(dateText(new Date().toISOString().slice(0, 10)))}${unchecked > 0 ? `; ${fmt(unchecked)} could not be checked, because Crossref did not answer` : ""}. Where Crossref had no notice, OpenAlex's own retraction flag was used${c.fromOpenAlex ? ` (${fmt(c.fromOpenAlex)} studies)` : ""}. A study without a flag can still have problems that no notice records.`
+    : "Not checked: the check was turned off in Settings."}</p>
+<p><b>Study designs</b> (column “Study design (automatic tag)”). ${c.designed ? `${fmt(c.designed)} of the studies saved have a design tag: ${designs}.` : "None of the studies saved has a design tag."} OpenAlex tags seven designs from PubMed's study types automatically, from the title, journal and abstract. A tag is right at least 96% of the time (randomized controlled trials 99%), but many studies have none, among them every study without an abstract, so an empty cell does not mean that a study has another design.</p>
+<p><b>Replications</b> (column “Replications (FReD)”). ${fmt(c.replicated)} of the studies saved have replications or reproductions recorded in the FORRT Replication Database (FReD; CC BY 4.0; data of ${esc(c.date || "unknown date")}), which lists about 2,600 findings, most of them from psychology: a study it does not list may still have been replicated.</p>`;
+}
+
+function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks = null) {
   const f = state.filters, src = SOURCES[state.tab];
   const when = new Date();
   const filters = [
     f.kinds.length ? `Types: ${f.kinds.map((k) => KIND_NAMES[k]).join(", ")}` : "",
+    f.designs.length ? `Study designs (OpenAlex's automatic tags): ${f.designs.map((d) => DESIGN_NAMES[d]).join(", ")}` : "",
     f.from || f.to ? `Years: ${f.from || "…"}–${f.to || "…"}` : "",
     f.open ? "Open access only" : "",
     f.fulltext ? "Full texts searched too" : "",
@@ -908,6 +1024,7 @@ ${gotNotes.length ? `<p>${gotNotes.map(esc).join(" ")}</p>` : ""}
 ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
 ${english && english.foreign ? `<h2>Titles in other languages</h2>
 <p>${fmt(english.foreign)} of the results saved have a title in another language. ${fmt(english.shown)} of them have an automatic English translation in the column “${EN_TITLE}” of “Results”, and in a note in “Results.ris”, made by Wikimedia's open machine translation (MinT) and checked by translating it back into the original language${english.failed ? `; ${fmt(english.failed)} did not pass that check and have none` : ""}${english.same ? `; ${fmt(english.same)} needed none, as their title says it in English too` : ""}${english.missing ? `; ${fmt(english.missing)} were not translated, because MinT did not answer or a save translates at most ${fmt(SAVE_TRANSLATIONS)}` : ""}. These are machine translations, not professional ones: use them to see what a study is about, and the original titles to screen and to cite.</p>` : ""}
+${checks ? checksHtml(checks) : ""}
 <p>Repeat the search: ${esc(location.href)}</p>
 </body></html>`;
 }
@@ -943,6 +1060,11 @@ function renderFilters() {
     sections.push(h("div", { class: "f-section" }, h("h3", {}, "Type"),
       src.kinds.map((k) => opt(KIND_NAMES[k], f.kinds.includes(k), (e) => { toggleIn(f.kinds, k, e.target.checked); search(0); }))));
   }
+  if (has("designs")) {
+    sections.push(h("div", { class: "f-section" }, h("h3", {}, "Study design"),
+      Object.keys(DESIGN_NAMES).map((d) => opt(DESIGN_NAMES[d], f.designs.includes(d), (e) => { toggleIn(f.designs, d, e.target.checked); search(0); })),
+      h("p", { class: "note f-note" }, "Tagged automatically by OpenAlex from titles and abstracts. The tags are rarely wrong, but many studies have none, among them every study without an abstract: use them to find studies, not to leave any out.")));
+  }
   if (has("repos")) {
     sections.push(h("div", { class: "f-section" }, h("h3", {}, "Repositories"),
       REPO_NAMES.map((n) => opt(n, !f.repos.length || f.repos.includes(n),
@@ -958,7 +1080,7 @@ function renderFilters() {
       h("button", { type: "button", class: "link-btn f-more", onclick: () => { state.showAllLangs = !state.showAllLangs; renderFilters(); } },
         state.showAllLangs ? "fewer languages" : `all ${langCodes.length} languages`)));
   }
-  const active = f.kinds.length || f.langs.length || f.from || f.to || f.open || f.repos.length || f.fulltext;
+  const active = f.kinds.length || f.designs.length || f.langs.length || f.from || f.to || f.open || f.repos.length || f.fulltext;
   if (active) sections.push(h("div", { class: "f-section" }, h("button", { type: "button", class: "btn btn-small", onclick: () => { state.filters = emptyFilters(); search(0); } }, "Clear filters")));
   fill($("#filters-body"), sections);
 }
@@ -967,7 +1089,6 @@ function renderFilters() {
 function openSettings() {
   const d = $("#settings");
   const key = h("input", { type: "password", autocomplete: "off", value: local.get("openalexKey", ""), placeholder: "optional", id: "set-key" });
-  const mail = h("input", { type: "email", autocomplete: "email", value: local.get("email", ""), placeholder: "optional", id: "set-mail" });
   const langs = h("div", { class: "lang-grid" }, LANGS.map((l) => h("label", { class: "f-option" },
     h("input", { type: "checkbox", checked: !state.langsOff.has(l), onchange: (e) => { setLang(l, e.target.checked); } }), LANG_NAMES[l])));
   const relay = h("input", { type: "url", autocomplete: "off", spellcheck: "false", value: local.get("relay", ""), placeholder: "https://….workers.dev (optional)", id: "set-relay" });
@@ -1002,6 +1123,10 @@ function openSettings() {
     h("label", { class: "f-option" }, h("input", { type: "checkbox", checked: translationsOn(), onchange: (e) => local.set("titlesEn", e.target.checked ? null : false) }),
       "Show their titles with an English translation"),
     h("p", { class: "note" }, "An automatic translation in [brackets] under each title in another language, and a button that translates its abstract. Wikimedia's MinT makes them, the open service that translates your keywords, and each title's translation is checked by translating it back. They are machine translations, not professional ones: enough to see what a study is about, not to quote."),
+    h("h3", {}, "Retractions and corrections"),
+    h("label", { class: "f-option" }, h("input", { type: "checkbox", checked: checksOn(), onchange: (e) => local.set("updates", e.target.checked ? null : false) }),
+      "Check the studies shown with Crossref"),
+    h("p", { class: "note" }, "Research Finder sends the DOIs of the studies shown, and of the studies you save, to Crossref, whose update notices include the Retraction Watch database, and marks the ones that were retracted, withdrawn, corrected or given an expression of concern. Without this check, only OpenAlex's own retraction flag is shown."),
     h("h3", {}, "Google Drive"), drive, earlier,
     h("h3", {}, h("label", { for: "set-relay" }, "File relay (optional)")),
     h("p", { class: "note" }, "OSF and figshare do not let web pages download their files, and neither do many publishers for their open-access PDFs, so Research Finder lists those with their links. A file relay copies them into your Drive too: a small program that you run on your own free Cloudflare account. It fetches each file and passes it straight on, keeping nothing. You decide whether to set one up; its address is kept only in this browser."),
@@ -1019,15 +1144,12 @@ function openSettings() {
     h("h3", {}, h("label", { for: "set-key" }, "OpenAlex key (optional)")),
     h("p", { class: "note" }, "Without a key, OpenAlex shares a free allowance of about 100 searches a day among everyone on your network, and limits free searches when it is busy. Each keyword takes one search to read how studies word it, and a search with many translations is split into up to 3 OpenAlex searches. A free personal key (",
       link("https://openalex.org/settings/api", "get one"), ") allows ten times more, up to 8 searches for one, and is not slowed down. It is kept only in this browser."), key,
-    h("h3", {}, h("label", { for: "set-mail" }, "Your email (optional)")),
-    h("p", { class: "note" }, "Sent only to OpenAlex with your searches, as their guidelines ask; kept only in this browser."), mail,
     h("h3", {}, "Other services"),
-    h("p", { class: "note" }, "No other keys are needed. Wikidata, Wikimedia's MinT translation, DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE are free and open. Machine translations are remembered in this browser, so each term and title is translated only once. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one."));
+    h("p", { class: "note" }, "No other keys are needed. Wikidata, Wikimedia's MinT translation, Crossref, DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE are free and open. Machine translations are remembered in this browser, so each term and title is translated only once. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one. The replications come from a copy of the FORRT Replication Database that this site keeps, so looking them up sends nothing anywhere."));
   if (relay.value.trim()) check();
   d.onclose = () => {
     local.set("relay", relay.value.trim());
     local.set("openalexKey", key.value.trim());
-    local.set("email", mail.value.trim());
     renderGroups();
     if (state.groups.length) search(0);
   };
@@ -1101,8 +1223,10 @@ function renderAbout() {
       h("li", {}, h("strong", {}, "The search. "), "All the terms become one Boolean query (OR within a keyword, AND between keywords), split into several queries when it is longer than a service takes. Studies come from OpenAlex; datasets from DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE.")),
     h("h3", {}, "Results in other languages"),
     h("p", {}, "A title in another language is shown with an automatic English translation in [brackets], and “English translation” under its abstract translates the abstract, both by Wikimedia's MinT. Each title's translation is translated back into the original language as a check: one that has almost nothing in common with the original, as machine translation sometimes writes for a short title, is not shown. They are machine translations, not professional ones, for a first look at what a study is about; Settings can turn them off."),
+    h("h3", {}, "Checks on the studies"),
+    h("p", {}, "Each study shows the design OpenAlex tags automatically from its title and abstract (randomized controlled trial, observational study, systematic review, meta-analysis, study protocol and others), and the filter “Study design” finds them; the tags are rarely wrong, but many studies have none. Studies that were retracted, withdrawn, corrected or given an expression of concern are marked, from Crossref's update notices, which include the Retraction Watch database. Studies with replication attempts recorded in the FORRT Replication Database, most of them in psychology, list them with their outcomes."),
     h("h3", {}, "What is saved"),
-    h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source, and an automatic English translation of titles in other languages), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
+    h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source, each study's design tag, retractions and corrections, and replications, and an automatic English translation of titles in other languages), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
     h("h3", {}, "Reporting a search"),
     h("p", {}, "The document “Search details” in each saved folder has what a methods section and a search appendix need:"),
     h("ul", {},
@@ -1133,6 +1257,7 @@ function toHash() {
   if (state.mode !== "all") p.set("match", state.mode);
   if (state.sort !== "rel") p.set("sort", state.sort);
   if (f.kinds.length) p.set("type", f.kinds.join(","));
+  if (f.designs.length) p.set("design", f.designs.join(","));
   if (f.langs.length) p.set("lang", f.langs.join(","));
   if (f.repos.length) p.set("repos", f.repos.join(","));
   if (f.from) p.set("from", f.from);
@@ -1156,6 +1281,7 @@ function fromHash() {
   state.mode = p.get("match") === "any" ? "any" : "all";
   state.sort = p.get("sort") || "rel";
   f.kinds = list("type");
+  f.designs = list("design").filter((d) => DESIGN_NAMES[d]);
   f.langs = list("lang");
   f.repos = list("repos");
   f.from = parseInt(p.get("from"), 10) || null;
@@ -1175,6 +1301,7 @@ function renderCredit() {
 
 /* ------------------------------------------------------------------ start */
 function start() {
+  local.set("email", null);        // asked for until November 2026 for OpenAlex, which no longer uses it
   renderCredit();
   renderMaker();
   const panel = fromHash();

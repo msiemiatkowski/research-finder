@@ -40,6 +40,12 @@
   --btn-ink: #f4f2ed;
   --warm: #8a6100;
   --warm-soft: #f6ecd0;
+  --warm-ink: #5c4000;
+  --danger: #a3151a;
+  --danger-ink: #ffffff;
+  --danger-soft: #fbe5e2;
+  --danger-text: #8f1216;
+  --ok: #17602b;
   --sheet: #188038;
   --doc: #1a73e8;
   --pdf: #d93025;
@@ -94,6 +100,12 @@
     --btn-ink: #121212;
     --warm: #e2b34a;
     --warm-soft: #33290f;
+    --warm-ink: #f0c860;
+    --danger: #ff9b91;
+    --danger-ink: #121212;
+    --danger-soft: #3a1513;
+    --danger-text: #ffb4ab;
+    --ok: #86d79f;
     --sheet: #5bb974;
     --doc: #8ab4f8;
     --pdf: #f28b82;
@@ -545,6 +557,29 @@ body:not(.searching) #about:not([hidden]) + .landing { padding-top: 0; }
 .r-kw button:hover { background: var(--hl-mid); color: var(--hl-ink); }
 .r-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; font-size: 14px; }
 .r-links a { font-weight: 650; }
+/* checks on studies: retraction and correction badges, design tags, replications */
+.r-flags { display: contents; }
+.badge.flag-serious { background: var(--danger); color: var(--danger-ink); }
+.badge.flag-concern { background: var(--warm-soft); color: var(--warm-ink); box-shadow: inset 0 0 0 1px var(--warm); }
+.badge.flag-minor { background: transparent; color: var(--text-2); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.badge.design { background: var(--surface-3); color: var(--text); }
+.r-checks { margin: 8px 0 2px; }
+.r-checks:empty { display: none; }
+.r-update { margin: 0 0 6px; padding: 6px 10px; border-left: 3px solid var(--border-strong); font-size: 14.5px; line-height: 1.45; color: var(--text); }
+.r-update.flag-serious { border-color: var(--danger); background: var(--danger-soft); }
+.r-update.flag-concern { border-color: var(--warm); background: var(--warm-soft); }
+.r-update.flag-minor { padding: 0 0 0 10px; }
+.r-repl { margin: 0 0 6px; font-size: 14.5px; line-height: 1.45; color: var(--text-2); }
+.r-repl summary { cursor: pointer; width: fit-content; }
+.r-repl summary strong { color: var(--text); }
+.r-repl ul { margin: 6px 0 4px; padding-left: 20px; }
+.r-repl li { margin: 3px 0; }
+.r-repl .note { font-size: 13px; }
+.oc { font: 600 11.5px/1.5 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-2); }
+.oc-s { color: var(--ok); }
+.oc-f { color: var(--danger-text); }
+.oc-m { color: var(--warm-ink); }
+.f-note { font-size: 13px; margin-top: 8px; }
 .empty { padding: 26px; color: var(--muted); }
 .loading { display: flex; align-items: center; gap: 10px; color: var(--text-2); padding: 16px 26px; font-size: 15px; }
 .skeleton { padding: 24px 26px; display: grid; gap: 11px; }

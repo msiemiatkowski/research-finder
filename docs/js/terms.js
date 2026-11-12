@@ -7,7 +7,7 @@
    - machine translations of the English terms into the 39 languages (Wikimedia's MinT), each checked by translating
      it back into English.
    Every term can be switched on or off; translations follow the chosen search languages. */
-import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=34";
+import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=35";
 
 export const LANG_NAMES = {
   pl: "Polish", de: "German", fr: "French", es: "Spanish", pt: "Portuguese", it: "Italian", nl: "Dutch", sv: "Swedish",
@@ -119,9 +119,8 @@ async function wikidata(term) {
 /* ------------------------------------------------------------------ OpenAlex: the studies on a keyword */
 function openalexParams() {
   const p = new URLSearchParams();
-  const key = local.get("openalexKey", ""), mail = local.get("email", "");
+  const key = local.get("openalexKey", "");
   if (key) p.set("api_key", key);
-  if (mail) p.set("mailto", mail);
   return p;
 }
 
@@ -131,7 +130,7 @@ async function studySample(g) {
   const core = g.terms.filter((t) => t.on && !isTranslation(t) && ["you", "alias", "mt"].includes(t.src)).slice(0, 6)
     .map((t) => (t.loose ? `(${mainWords(t.text).join(" AND ")})` : `"${t.text.replace(/["\\]/g, " ")}"`).replace(/[,|]/g, " "));
   const p = openalexParams();
-  p.set("filter", `title_and_abstract.search:${core.length > 1 ? `(${core.join(" OR ")})` : core[0]}`);
+  p.set("search.title_and_abstract", core.length > 1 ? `(${core.join(" OR ")})` : core[0]);
   p.set("per-page", String(SAMPLE));
   p.set("select", "display_name,abstract_inverted_index,keywords");
   const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 30000 });

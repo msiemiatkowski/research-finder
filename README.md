@@ -20,7 +20,11 @@ science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; 
   Scholar or BASE; saves every record a search finds, with abstracts and without duplicates,
   as a Google Sheet and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote; links every open PDF and
   copies the ones it can fetch, and the open data files; and records the sources, date, terms, filters, exact
-  queries and counts for the PRISMA flow diagram and the search appendix (PRISMA 2020 items 6 and 7).
+  queries and counts for the PRISMA flow diagram and the search appendix (PRISMA 2020 items 6 and 7). Studies that
+  were retracted, withdrawn, corrected or given an expression of concern are flagged (Crossref, with the Retraction
+  Watch database); OpenAlex's study-design tags (randomized controlled trial, observational study, systematic review,
+  meta-analysis, study protocol and others) are shown and can be filtered on; and studies with replication attempts
+  in the FORRT Replication Database list them with their outcomes.
 - **Literature reviews.** How many studies each keyword has, existing reviews (Review filter), the most cited and the
   newest work, related phrases and the topics most often studied with yours, every abstract in one sheet and a
   RIS file for a reference manager.
@@ -39,7 +43,8 @@ Each saved search becomes one folder in the visitor's own Google Drive:
 Research Finder/
   <keywords> — <date and time>/
     Results          Google Sheet: one row per result with its abstract, the same columns for every source,
-                     with links to the files saved for it, and the English of titles in other languages
+                     with links to the files saved for it, each study's design tag, retractions and
+                     corrections, and replications, and the English of titles in other languages
                      (automatic translation)
     Results.ris      the same results for Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview
     Files            Google Sheet: every file found, with its download link, and whether it was saved
@@ -100,6 +105,18 @@ limited to the files the app creates (`drive.file`).
    results (up to 2,000 a save) into the column "Title in English (automatic translation)" of "Results" and the CSV,
    and into a note (N1) in the RIS file that says it is an automatic translation; "Search details" counts them.
    Settings can turn this off.
+7. **Checks on studies.** Every study shows the design OpenAlex tags automatically from its title, journal and
+   abstract (`study_designs`: randomized controlled trial, clinical trial, observational study, case report,
+   systematic review, meta-analysis, study protocol), and the filter "Study design" searches by it. The DOIs of the
+   studies shown are sent to Crossref, 100 to a request and one request a second, for their update notices (which
+   include the Retraction Watch database): retracted, partly retracted, withdrawn or removed studies are flagged, and
+   so are expressions of concern and corrections, with the date and a link to the notice. Where Crossref has no
+   notice, OpenAlex's own `is_retracted` flag is used (it sometimes marks a correction, so Crossref's answer wins).
+   Studies listed as originals in the FORRT Replication Database (FReD) show their replications and reproductions with
+   the outcomes FReD records; the site keeps a compact copy of FReD's data in `docs/data/replications.json`. A save,
+   and a CSV or RIS export, puts all three into the columns "Study design (automatic tag)", "Retraction or
+   correction" and "Replications (FReD)" and into notes (N1) in the RIS file, and "Search details" counts them.
+   Settings can turn the Crossref check off.
 
 ### Limits
 
@@ -120,6 +137,12 @@ limited to the files the app creates (`drive.file`).
 - The English translations of titles and abstracts are rough, more so from Chinese, Japanese and Korean, and the check
   catches made-up translations, not every wrong word ("stosunek", attitude, can come out as "ratio"). Use them to see
   what a study is about, not to include or exclude it.
+- OpenAlex's design tags are precise (at least 96% right, randomized controlled trials 99%, by its own benchmark) but
+  miss many studies, and a study without an abstract is never tagged: the filter finds studies, it should not be
+  used to leave any out of a review. Designs outside the seven, such as qualitative studies, have no tag.
+- Retraction flags cover studies with Crossref DOIs and notices that publishers or Retraction Watch recorded; a study
+  without a flag can still be flawed. FReD lists about 2,600 findings, most of them from psychology, so a study it
+  does not list may still have been replicated.
 - OSF and figshare files cannot be copied into Drive by a browser alone; the "Files" sheet has their download links,
   or a file relay copies them (below).
 
@@ -166,11 +189,17 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
 
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation of the terms), `translate.js` (English for results in other languages: which language a title is in,
-the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `drive.js`
+the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `checks.js`
+(study designs, retractions and corrections from Crossref, replications from FReD), `drive.js`
 (Google sign-in and the folder structure), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=34`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=35`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+
+The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
+CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites
+`docs/data/replications.json`, the compact copy the site uses (about 450 KB, 140 KB compressed); run it from time to
+time and publish the file.
 
 ## Creator
 
