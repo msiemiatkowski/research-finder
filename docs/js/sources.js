@@ -3,10 +3,10 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=38";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=38";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=39";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=39";
 
-export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other", r: "Registered study" };
+export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other", r: "Registered study", m: "Questionnaire or scale" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
 /* English terms first, then the translations: the first term in every language, then the second, and so on, the
    languages with the most research first. */
@@ -145,6 +145,7 @@ function openalexQuery({ filters, sort }, search) {
   if (filters.langs.length) f.push(`language:${filters.langs.join("|")}`);
   if ((filters.countries || []).length) f.push(`authorships.countries:${filters.countries.join("|")}`);
   if (filters.south) f.push("authorships.institutions.is_global_south:true");
+  if (/^W\d+$/.test(filters.cites || "")) f.push(`cites:${filters.cites}`);
   if (f.length) p.set("filter", f.join(","));
   if (sort === "new") p.set("sort", "publication_date:desc");
   else if (sort === "cited") p.set("sort", "cited_by_count:desc");
@@ -373,8 +374,9 @@ const OPENAIRE_LANGS = { eng: "en", deu: "de", ger: "de", fra: "fr", fre: "fr", 
 function fromDataCite(d) {
   const a = d.attributes || {};
   const desc = (a.descriptions || []).find((x) => x.descriptionType === "Abstract") || (a.descriptions || [])[0] || {};
+  const measure = /^10\.6102\//.test(a.doi || "") || (/^10\.23668\//.test(a.doi || "") && /^test$/i.test((a.types || {}).resourceType || ""));
   return {
-    key: `doi:${(a.doi || "").toLowerCase()}`, source: "DataCite", kind: "d", year: +a.publicationYear || 0, date: String(a.publicationYear || ""),
+    key: `doi:${(a.doi || "").toLowerCase()}`, source: measure ? (/^10\.6102\//.test(a.doi) ? "ZIS (GESIS)" : "PsychArchives (ZPID)") : "DataCite", kind: measure ? "m" : "d", year: +a.publicationYear || 0, date: String(a.publicationYear || ""),
     title: ((a.titles || [])[0] || {}).title || "(untitled)", authors: authorList((a.creators || []).map((c) => c.name).filter(Boolean)), people: (a.creators || []).map((c) => c.name).filter(Boolean),
     venue: typeof a.publisher === "object" ? (a.publisher || {}).name || "" : a.publisher || "", doi: a.doi || "", url: "", pdf: "",
     lang: (a.language || "").slice(0, 2), keywords: (a.subjects || []).map((s) => s.subject).filter(Boolean).slice(0, 8),
@@ -474,6 +476,9 @@ const yearList = (f) => {
 };
 const yearsLucene = (f, field) => (f.from || f.to ? ` AND ${field}:[${f.from || 1000} TO ${f.to || 2999}]` : "");
 
+/* Documented questionnaires and scales: GESIS's ZIS (DOI prefix 10.6102) and ZPID's PsychArchives tests (10.23668). */
+const MEASURES = "(prefix:10.6102 OR (prefix:10.23668 AND types.resourceType:test))";
+
 /* How long a query each repository takes (Zenodo and Dataverse fail on long Boolean queries), its syntax, and how many
    queries one search makes (OpenAIRE takes five terms a query). */
 const REPO_LEN = { DataCite: 1500, Zenodo: 600, "Harvard Dataverse": 600, OSF: 800, OpenAIRE: 1000 };
@@ -481,7 +486,9 @@ const REPO_SYNTAX = { OSF: TROVE, OpenAIRE: FEW, Zenodo: { ...LUCENE, terms: 24 
 const REPO_PARTS = { OpenAIRE: 4 };
 const REPOS = {
   DataCite: async ([q], f, sort, page, size) => {
-    const p = new URLSearchParams({ query: q + yearsLucene(f, "publicationYear"), "resource-type-id": "dataset", "page[size]": String(Math.min(size, 1000)), "page[number]": String(page) });
+    const p = f.measures
+      ? new URLSearchParams({ query: `(${q})${yearsLucene(f, "publicationYear")} AND ${MEASURES}`, "page[size]": String(Math.min(size, 1000)), "page[number]": String(page) })
+      : new URLSearchParams({ query: q + yearsLucene(f, "publicationYear"), "resource-type-id": "dataset", "page[size]": String(Math.min(size, 1000)), "page[number]": String(page) });
     if (sort === "new") p.set("sort", "-published");
     const j = await getJSON(`https://api.datacite.org/dois?${p}`, { timeout: 25000 });
     return { total: (j.meta || {}).total || 0, items: (j.data || []).map(fromDataCite) };
@@ -552,10 +559,11 @@ export const datasets = {
   note: "DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE",
   tab: "DataCite · Zenodo · Dataverse · OSF · OpenAIRE", noun: ["dataset", "datasets"],
   sorts: [["rel", "Best match"], ["new", "Newest first"]],
-  filters: ["years", "repos"],
+  filters: ["measures", "years", "repos"],
   /* size: results asked of each repository */
   async search({ groups, mode, filters, sort }, page, size = 8) {
-    const names = REPO_NAMES.filter((n) => !filters.repos.length || filters.repos.includes(n));
+    // questionnaires and scales are only in DataCite
+    const names = filters.measures ? ["DataCite"] : REPO_NAMES.filter((n) => !filters.repos.length || filters.repos.includes(n));
     let dropped = 0;
     const settled = await Promise.allSettled(names.map(async (n) => {
       const bq = repoQueries(n, groups, mode);
@@ -716,7 +724,165 @@ export const trials = {
   },
 };
 
-export const SOURCES = { studies, data: datasets, trials };
+/* ------------------------------------------------------------------ regional databases */
+/* LA Referencia (theses and articles from Latin American repositories), DOAJ (articles of open-access journals,
+   many of them small regional ones) and CiNii Research (Japanese articles; only with the visitor's own free application
+   ID, which CiNii asks for). Each gets the terms in its languages; none uses the OpenAlex allowance. */
+const regionName = (() => { try { const d = new Intl.DisplayNames(["en"], { type: "region" }); return (c) => { try { return d.of(c); } catch { return c; } }; } catch { return (c) => c; } })();
+const ISO3 = { spa: "es", por: "pt", eng: "en", fra: "fr", fre: "fr", ita: "it", deu: "de", ger: "de", jpn: "ja" };
+const kindOf = (format) => (/thesis/i.test(format) ? "t" : /article|journal/i.test(format) ? "a" : /book/i.test(format) ? "b" : /preprint/i.test(format) ? "p" : "o");
+const doiIn = (urls) => { for (const u of urls) { const m = /doi\.org\/(10\.\d{4,9}\/\S+)/i.exec(u || ""); if (m) return decodeURIComponent(m[1]); } return ""; };
+const keysOf = (x) => (x && !Array.isArray(x) ? Object.keys(x) : []);
+
+function fromLaReferencia(r) {
+  const people = [...keysOf((r.authors || {}).primary), ...keysOf((r.authors || {}).secondary)];
+  const urls = (r.urls || []).map((u) => u.url).filter(Boolean);
+  const country = /^([A-Z]{2})_/.exec(r.id || "");
+  const summary = ((r.summary || [])[0] || "").replace(/\s+/g, " ").trim();
+  const doi = doiIn(urls);
+  return {
+    key: doi ? `doi:${doi.toLowerCase()}` : `lr:${r.id}`, source: "LA Referencia", kind: kindOf((r.formats || [])[0] || ""),
+    year: parseInt((r.publicationDates || [])[0], 10) || 0, date: String((r.publicationDates || [])[0] || ""), title: r.title || "(untitled)",
+    authors: authorList(people), people, venue: country ? `LA Referencia, ${regionName(country[1])}` : "LA Referencia", doi,
+    url: urls.find((u) => !/doi\.org/.test(u)) || urls[0] || "", pdf: "", lang: ISO3[(r.languages || [])[0]] || String((r.languages || [])[0] || "").slice(0, 2),
+    keywords: [...new Set((r.subjects || []).flat().filter((x) => x && !/^https?:/.test(x)))].slice(0, 8), abstract: snippet(summary, 400), full: summary, open: true, cited: 0,
+  };
+}
+
+function fromDoaj(r) {
+  const b = r.bibjson || {}, j = b.journal || {};
+  const doi = ((b.identifier || []).find((x) => /^doi$/i.test(x.type)) || {}).id || "";
+  const people = (b.author || []).map((a) => a.name).filter(Boolean);
+  const abstract = String(b.abstract || "").replace(/\s+/g, " ").trim();
+  return {
+    key: doi ? `doi:${doi.toLowerCase()}` : `doaj:${r.id}`, source: "DOAJ", kind: "a", year: parseInt(b.year, 10) || 0,
+    date: [b.year, b.month && String(b.month).padStart(2, "0")].filter(Boolean).join("-"), title: b.title || "(untitled)",
+    authors: authorList(people), people, venue: [j.title, j.country ? regionName(j.country) : ""].filter(Boolean).join(", "), doi,
+    url: doi ? "" : (((b.link || []).find((l) => l.type === "fulltext") || {}).url || ""), pdf: "",
+    lang: String((j.language || [])[0] || "").slice(0, 2).toLowerCase(), keywords: (b.keywords || []).slice(0, 8),
+    abstract: snippet(abstract, 400), full: abstract, open: true, cited: 0, doaj: true, issn: (j.issns || [])[0] || "",
+    volume: j.volume || "", issue: j.number || "", fpage: b.start_page || "", lpage: b.end_page || "", publisher: j.publisher || "",
+  };
+}
+
+function fromCinii(it) {
+  const ids = [].concat(it["dc:identifier"] || []);
+  const doi = (ids.find((x) => /doi/i.test(x["@type"] || "")) || {})["@value"] || "";
+  const people = [].concat(it["dc:creator"] || []).map((x) => (typeof x === "string" ? x : x["@value"] || "")).filter(Boolean);
+  const desc = String([].concat(it.description || it["dc:description"] || [])[0] || "").replace(/\s+/g, " ").trim();
+  const date = String(it["prism:publicationDate"] || "");
+  return {
+    key: doi ? `doi:${doi.toLowerCase()}` : `cinii:${((it.link || {})["@id"] || "").split("/").pop()}`, source: "CiNii Research",
+    kind: kindOf(it["dc:type"] || "article"), year: parseInt(date, 10) || 0, date, title: it.title || "(untitled)", authors: authorList(people), people,
+    venue: it["prism:publicationName"] || it["dc:publisher"] || "", doi, url: doi ? "" : (it.link || {})["@id"] || "", pdf: "", lang: "ja",
+    keywords: [], abstract: snippet(desc, 400), full: desc, open: false, cited: 0,
+    volume: String(it["prism:volume"] || "").replace(/^Vol\.?\s*/i, ""), issue: String(it["prism:number"] || ""), fpage: it["prism:startingPage"] || "", lpage: it["prism:endingPage"] || "",
+  };
+}
+
+const doajNext = { at: 0 };
+const REGIONAL = {
+  "LA Referencia": {
+    langs: ["es", "pt"], len: 1400,
+    async search(q, f, sort, page, size) {
+      const p = new URLSearchParams({ lookfor: q, type: "AllFields", limit: String(Math.min(size, 100)), page: String(page) });
+      for (const x of ["id", "title", "authors", "publicationDates", "summary", "urls", "languages", "formats", "subjects"]) p.append("field[]", x);
+      if (f.from || f.to) p.append("filter[]", `publishDate:"[${f.from || 1000} TO ${f.to || 2999}]"`);
+      if (sort === "new") p.set("sort", "year");
+      const j = await getJSON(`https://buscador.lareferencia.info/api/v1/search?${p}`, { timeout: 30000 });
+      return { total: j.resultCount || 0, items: (j.records || []).map(fromLaReferencia) };
+    },
+  },
+  DOAJ: {
+    langs: null, len: 900, encoded: 1600,            // much longer addresses get an error from DOAJ's server
+    async search(q, f, sort, page, size) {
+      // two requests a second at most
+      const at = Math.max(Date.now(), doajNext.at);
+      doajNext.at = at + 600;
+      await new Promise((r) => setTimeout(r, at - Date.now()));
+      const query = `(${q})${yearsLucene(f, "bibjson.year")}`;
+      const url = `https://doaj.org/api/search/articles/${encodeURIComponent(query)}?page=${page}&pageSize=${Math.min(size, 100)}`;
+      let j;
+      try {
+        j = await getJSON(url, { timeout: 45000 });
+      } catch (e) {
+        // DOAJ's server sometimes fails a request it answers a moment later
+        if (e.status && e.status < 500) throw e;
+        await new Promise((r) => setTimeout(r, 2500));
+        j = await getJSON(url, { timeout: 45000 });
+      }
+      return { total: j.total || 0, items: (j.results || []).map(fromDoaj) };
+    },
+  },
+  "CiNii Research": {
+    langs: ["ja"], len: 900, encoded: 2000, needs: () => local.get("ciniiAppId", ""),
+    async search(q, f, sort, page, size) {
+      const n = Math.min(size, 200);
+      const p = new URLSearchParams({ q, count: String(n), start: String((page - 1) * n + 1), format: "json", appid: local.get("ciniiAppId", "") });
+      if (f.from) p.set("from", String(f.from));
+      if (f.to) p.set("until", String(f.to));
+      if (sort === "new") p.set("sortorder", "0");
+      const j = await getJSON(`https://cir.nii.ac.jp/opensearch/articles?${p}`, { timeout: 30000 });
+      return { total: Number(j["opensearch:totalResults"]) || 0, items: (j.items || []).map(fromCinii) };
+    },
+  },
+};
+export const REGIONAL_NAMES = Object.keys(REGIONAL);
+/* The terms each database gets: your words, the English terms and the translations into its languages (DOAJ, which
+   publishes in every language, all of them). */
+export function regionalQueries(n, groups, mode) {
+  const db = REGIONAL[n];
+  const use = groups.map((g) => g.filter((t) => !isTranslation(t) || !db.langs || db.langs.includes(t.lang))).filter((g) => g.length);
+  // a query in many scripts is much longer once it is put into an address: shortened until it fits
+  for (let len = db.len; ; len = Math.floor(len * 0.85)) {
+    const bq = booleanParts(use, mode, len, 1);
+    if (!db.encoded || !bq.parts.length || encodeURIComponent(`(${bq.parts[0]})`).length <= db.encoded || len < 200) return bq;
+  }
+}
+
+export const regional = {
+  id: "regional",
+  name: "Regional databases",
+  note: "LA Referencia (Latin American repositories), DOAJ (open-access journals) and CiNii Research (Japan)",
+  tab: "LA Referencia · DOAJ · CiNii", noun: ["record", "records"], repoNames: REGIONAL_NAMES,
+  sorts: [["rel", "Best match"], ["new", "Newest first"]],
+  filters: ["years", "repos"],
+  /* size: results asked of each database */
+  async search({ groups, mode, filters, sort }, page, size = 10) {
+    const chosen = REGIONAL_NAMES.filter((n) => !filters.repos.length || filters.repos.includes(n));
+    const notes = [];
+    const names = chosen.filter((n) => !REGIONAL[n].needs || REGIONAL[n].needs());
+    if (names.length < chosen.length && page === 1) notes.push("CiNii Research was not searched: it asks for a free application ID of your own (Settings).");
+    let dropped = 0;
+    const settled = await Promise.allSettled(names.map(async (n) => {
+      const bq = regionalQueries(n, groups, mode);
+      dropped += bq.dropped;
+      return bq.parts.length ? REGIONAL[n].search(bq.parts[0], filters, sort, page, size) : { total: 0, items: [] };
+    }));
+    const lists = [], totals = {};
+    settled.forEach((x, i) => {
+      if (x.status === "fulfilled") { lists.push(x.value.items); totals[names[i]] = x.value.total; } else notes.push(friendly(x.reason, names[i]));
+    });
+    const seen = new Set();
+    let items = interleave(lists).filter((r) => firstOf(r, seen));
+    if (sort === "new") items = items.sort((a, b) => (b.date || String(b.year)).localeCompare(a.date || String(a.year)));
+    const total = Object.values(totals).reduce((a, b) => a + b, 0);
+    return { total, items, more: Object.values(totals).some((t) => t > page * size), notes, totals, dropped };
+  },
+  /* For saving: every record, 100 from each database a page, each once. */
+  async *all(q, notes = [], { info = null } = {}) {
+    const seen = new Set();
+    for (let page = 1; page <= 100; page++) {
+      const res = await regional.search(q, page, 100);
+      notes.push(...(res.notes || []));
+      if (info && page === 1) { info.total = res.total; info.totals = res.totals; }
+      yield res.items.filter((r) => firstOf(r, seen));
+      if (!res.more || !res.items.length) return;
+    }
+  },
+};
+
+export const SOURCES = { studies, data: datasets, trials, regional };
 
 /* ------------------------------------------------------------------ files to save */
 /* Open PDFs that Semantic Scholar knows for these DOIs (one request for up to 500). Its open versions are often on

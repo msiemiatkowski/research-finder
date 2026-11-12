@@ -40,7 +40,12 @@ science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; 
 - **Secondary data analysis.** DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE at once, with the open data
   files saved into one Drive folder per dataset and a sheet listing every file.
 - **Cross-cultural research.** Studies published in other languages, such as validation studies of adapted
-  questionnaires in national journals; filter by the language of the study. An overview counts all the results by
+  questionnaires in national journals; filter by the language of the study. "Versions of a questionnaire" searches a
+  scale's name (and its acronym, untranslated) with eight method words ("validation", "adaptation", "psychometric
+  properties", "factor structure", "reliability", "measurement invariance", "translation", "version") in 39
+  languages, optionally only studies citing the original paper (`cites:`). The tab "Regional databases" searches LA
+  Referencia, DOAJ and (with the visitor's own application ID) CiNii Research, and Datasets can be limited to
+  questionnaires and scales (GESIS ZIS and ZPID PsychArchives in DataCite). An overview counts all the results by
   the countries of their authors, the share with an author in the Global South, language, year, type and journal,
   and each bar filters the results (for example to studies with an author in one country). Their titles come with an automatic
   English translation in [brackets], and an abstract translates with one click, for a first look at what a study is
@@ -188,7 +193,16 @@ limited to the files the app creates (`drive.file`).
    participants, dates, conditions, interventions, countries, the PMIDs of linked publications and other IDs, in their
    own sheet columns; the PRISMA diagram counts them under "Registers". Studies whose abstracts give an NCT or ISRCTN
    number link to the registry.
-13. **Journals and Zotero.** OpenAlex's `is_in_doaj` gives a DOAJ badge linking to the journal's DOAJ page. Retraction
+13. **Regional databases.** LA Referencia's VuFind API (`lookfor` with `type=AllFields`, the English, Spanish and
+   Portuguese terms up to 1,400 characters, `filter[]=publishDate:"[a TO b]"`, `sort=year`), DOAJ's article search
+   (the query in the address, all languages, shortened until the encoded address is at most 1,800 characters, as longer
+   ones get HTTP 502; `bibjson.year:[a TO b]`; about two requests a second) and CiNii Research's OpenSearch (`articles`,
+   Japanese and English terms, `from`/`until`, only with an `appid` the visitor adds). Records are interleaved and kept
+   once by DOI, or by title and year; the counts per database go into the PRISMA diagram. A keyword can carry other
+   names after " | " (an acronym in capitals is not translated), and the keyword `[validation or adaptation]` is the
+   bundle of method words, translated by MinT without the study-wording step. Datasets' filter "Questionnaires and
+   scales only" asks DataCite alone for `prefix:10.6102 OR (prefix:10.23668 AND types.resourceType:test)`.
+14. **Journals and Zotero.** OpenAlex's `is_in_doaj` gives a DOAJ badge linking to the journal's DOAJ page. Retraction
    Watch's Hijacked Journal Checker (a Google Sheet read through `gviz/tq?tqx=out:csv`, kept a day in the browser)
    gives the web addresses of fake copies of real journals; a study whose landing page or PDF is on one is flagged
    (the shared ISSN alone is not used, as the copies take it from the real journal). "Send to Zotero" checks the
@@ -229,6 +243,8 @@ limited to the files the app creates (`drive.file`).
   "More like these" can give other studies later.
 - The overview's counts are OpenAlex's: a study two parts of a search find counts twice, countries are those of the
   authors' institutions (not of the samples), and OpenAlex's language labels overstate English.
+- The regional databases overlap with OpenAlex by an unmeasured amount, DOAJ's relevance ranking is loose for short
+  acronyms, and CiNii Research is searched only with the visitor's own application ID, as CiNii asks.
 - ClinicalTrials.gov is searched in English only, and other registries (WHO ICTRP, ISRCTN, EU CTR) are not searched,
   only linked. The hijacked-journal list has confirmed cases only and comes from a Google Sheet without stated terms of
   use, read as it is published; its layout could change.
@@ -279,7 +295,7 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
 
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation of the terms), `translate.js` (English for results in other languages: which language a title is in,
-the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, ClinicalTrials.gov, files to save), `checks.js`
+the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, ClinicalTrials.gov, LA Referencia, DOAJ, CiNii Research, files to save), `checks.js`
 (study designs, retractions and corrections from Crossref, replications from FReD, DOAJ and hijacked journals), `review.js` (checking the search
 against known studies, citation searching, similar studies, your studies, what the results cite, the PRISMA flow
 diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted references), `zotero.js` (Send to Zotero),
@@ -287,7 +303,7 @@ diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted reference
 folder structure, adding new results to a save), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=38`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=39`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

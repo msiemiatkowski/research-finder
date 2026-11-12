@@ -7,7 +7,7 @@
    - machine translations of the English terms into the 39 languages (Wikimedia's MinT), each checked by translating
      it back into English.
    Every term can be switched on or off; translations follow the chosen search languages. */
-import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=38";
+import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=39";
 
 export const LANG_NAMES = {
   pl: "Polish", de: "German", fr: "French", es: "Spanish", pt: "Portuguese", it: "Italian", nl: "Dutch", sv: "Swedish",
@@ -44,12 +44,31 @@ export function parseInput(input) {
   return String(input || "").split(/[,;\n]+/).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
 }
 
+/* The words that make a study a validation or an adaptation of a measure: one keyword, "[validation or adaptation]",
+   searched with the name of a scale finds its versions in other languages. */
+export const METHOD = "[validation or adaptation]";
+export const METHOD_WORDS = ["validation", "adaptation", "psychometric properties", "factor structure", "reliability",
+  "measurement invariance", "translation", "version"];
+const isMethod = (label) => /^\[\s*validation or adaptation\s*\]$/i.test(String(label).trim());
+/* An acronym ("RSES", "PHQ-9") is searched as it is, in every language. */
+const isAcronym = (text) => /^[A-Z][A-Z0-9-]{1,9}$/.test(text) && /[A-Z].*[A-Z]/.test(text);
+
 export function makeGroup(label) {
   const g = { id: ++groupSeq, label, terms: [], seen: new Set(), edit: false, status: "pending", stage: "", related: [],
     notes: [], mtCount: 0 };
+  if (isMethod(label)) {
+    g.method = true;
+    g.base = METHOD_WORDS[0];
+    METHOD_WORDS.forEach((w) => addTerm(g, w, "you", "", 1, true));
+    return g;
+  }
+  // "Rosenberg Self-Esteem Scale | RSES": one keyword with other names for it
+  const [main, ...others] = label.split(/\s+\|\s+/).map((x) => x.trim()).filter(Boolean);
+  g.base = main || label;
   // up to four words are a term ("trust in science") and searched as a phrase; a longer entry is a description,
   // searched by its main words
-  addTerm(g, label, "you", "", 1, true, { loose: label.split(" ").length >= 5 });
+  addTerm(g, g.base, "you", "", 1, true, { loose: g.base.split(" ").length >= 5 });
+  for (const o of others) addTerm(g, o, "you", "", 1, true, isAcronym(o) ? { noTranslate: true } : { loose: o.split(" ").length >= 5 });
   return g;
 }
 
@@ -315,7 +334,7 @@ async function pool(items, n, fn) {
 /* Machine translations of the group's English terms that are switched on (the first eight; others when they are
    switched on), into all 39 languages. */
 export async function translateGroup(g, { onProgress = () => {} } = {}) {
-  const sources = g.terms.filter((t) => t.on && !isTranslation(t) && !t.translated && !t.loose && (t.src !== "you" || g.youEnglish)
+  const sources = g.terms.filter((t) => t.on && !isTranslation(t) && !t.translated && !t.loose && !t.noTranslate && (t.src !== "you" || g.youEnglish)
     && !(t.src === "variant" && t.n < 3 && !t.picked)).slice(0, MT_MAX);
   if (!sources.length) return 0;
   for (const s of sources) {
@@ -347,9 +366,23 @@ export async function translateGroup(g, { onProgress = () => {} } = {}) {
    machine translations. A step that fails leaves the group as it was, with a note. */
 export async function enrich(g, { live = true, onChange = () => {} } = {}) {
   const stage = (text) => { g.stage = text; onChange(); };
+  const name = g.base || g.label;
+  if (g.method) {
+    g.youEnglish = true;
+    stage("Translating the method words into 39 languages…");
+    try {
+      await translateGroup(g, { onProgress: (n, of) => stage(`Translating the method words into other languages: ${n} of ${of}…`) });
+    } catch (e) {
+      g.notes.push(`Translation: ${e.message}`);
+    }
+    g.stage = "";
+    g.status = "done";
+    onChange();
+    return g;
+  }
   stage("Looking the topic up in Wikidata…");
   try {
-    const wd = await wikidata(g.label);
+    const wd = await wikidata(name);
     if (wd) {
       g.wikidata = wd;
       g.terms[0].loose = false;           // a known topic: its name is searched as a phrase
@@ -359,10 +392,10 @@ export async function enrich(g, { live = true, onChange = () => {} } = {}) {
   } catch (e) {
     g.notes.push(`Wikidata: ${e.message}`);
   }
-  g.youEnglish = looksEnglish(g.label) && (!g.wikidata || g.wikidata.matchedIn === "en");
+  g.youEnglish = looksEnglish(name) && (!g.wikidata || g.wikidata.matchedIn === "en");
   if (!g.youEnglish && !g.wikidata) {     // another language and no known topic: into English first
-    const from = guessLanguages(g.label).find((l) => LANG_NAMES[l]);
-    const out = from ? await mint([g.label], from, "en") : null;
+    const from = guessLanguages(name).find((l) => LANG_NAMES[l]);
+    const out = from ? await mint([name], from, "en") : null;
     if (out) addTerm(g, out[0], "mt", "en", 0.9, true, { from });
   }
   if (live) {
@@ -370,7 +403,7 @@ export async function enrich(g, { live = true, onChange = () => {} } = {}) {
     try {
       const st = await studySample(g);
       g.studies = { total: st.total, read: st.works.length };
-      const base = g.youEnglish ? g.label : (g.wikidata ? g.wikidata.label : (g.terms.find((t) => t.src === "mt") || {}).text);
+      const base = g.youEnglish ? name : (g.wikidata ? g.wikidata.label : (g.terms.find((t) => t.src === "mt") || {}).text);
       if (base && !g.terms[0].loose) {
         const k = keywordOf(base);
         const w = wordings(k, st.works);
@@ -384,7 +417,7 @@ export async function enrich(g, { live = true, onChange = () => {} } = {}) {
         }
         g.related = counts.filter(([text]) => relation(k, tokens(text)) === "").slice(0, 12).map(([text, n]) => ({ text, n }));
       } else {
-        g.related = keywordCounts(st.works).filter(([text]) => norm(text) !== norm(g.label)).slice(0, 12).map(([text, n]) => ({ text, n }));
+        g.related = keywordCounts(st.works).filter(([text]) => norm(text) !== norm(name)).slice(0, 12).map(([text, n]) => ({ text, n }));
         for (const x of g.related) addTerm(g, x.text, "studies", "", 0.85, false, { n: x.n });
       }
     } catch (e) {
