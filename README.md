@@ -213,7 +213,19 @@ limited to the files the app creates (`drive.file`).
    the pairs. Each group keeps its fullest record, filled in from the others, with "Found in". Outputs: CSV, RIS, the
    duplicates removed (with the kept record and the reason), the PRISMA 2020 diagram with each database's count and the
    duplicates removed, or a Drive folder with all of them and a "Search details" for PRISMA-S items 15 and 16.
-15. **Journals and Zotero.** OpenAlex's `is_in_doaj` gives a DOAJ badge linking to the journal's DOAJ page. Retraction
+15. **Screening.** `screen.js`: a project (the records, decisions, reasons, the search's terms to highlight) kept in
+   IndexedDB. Decisions by keyboard (I, M, E, 1–9 for reasons, U, N; single-key shortcuts can be switched off) or
+   buttons. Prioritised order: the search's order until one relevant and one irrelevant decision, then TF-IDF of words
+   and word pairs (title twice, the English title, abstract, keywords; sublinear tf, L2) and logistic regression by SGD
+   with the relevant class weighted up, retrained after every decision (every 5 after 50), the unscreened ranked by
+   score. Stopping panel: 10% screened, 50 irrelevant in a row, the "your studies" in the set found, and the hypergeometric
+   test of Callaghan & Müller-Hansen (2020) for a 95% recall target (checked against a Python implementation). Two
+   reviewers: a project file (JSON) for the second reviewer, whose decisions (Research Finder CSV/JSON, ASReview CSV or
+   RIS labels, Rayyan notes) are matched by key, DOI or title, giving percent agreement, Cohen's kappa, PABAK and the
+   conflicts to resolve. Exports: decisions CSV, RIS with ASReview's labels (`ASReview_relevant` / `_irrelevant` /
+   `_not_seen` in N1), the included records as RIS for Covidence or Rayyan, or a Drive folder with a screening record and
+   the PRISMA diagram's screened and excluded counts.
+16. **Journals and Zotero.** OpenAlex's `is_in_doaj` gives a DOAJ badge linking to the journal's DOAJ page. Retraction
    Watch's Hijacked Journal Checker (a Google Sheet read through `gviz/tq?tqx=out:csv`, kept a day in the browser)
    gives the web addresses of fake copies of real journals; a study whose landing page or PDF is on one is flagged
    (the shared ISSN alone is not used, as the copies take it from the real journal). "Send to Zotero" checks the
@@ -252,6 +264,9 @@ limited to the files the app creates (`drive.file`).
   without a key a large search may stop early (then what it got is added and the next run adds the rest). New records
   are newly retrieved, not necessarily newly published. OpenAlex recomputes its similar works from time to time, so
   "More like these" can give other studies later.
+- Screening's ranking is a simple reimplementation, not ASReview, and has not been benchmarked here; its stopping
+  checks advise and assume the last records screened are like a random sample of the rest. Projects live in one
+  browser: export or save them, as clearing the browser's data deletes them.
 - Deduplication is rule-based, not checked against a gold standard: records without DOIs or PubMed IDs whose titles
   differ by more than a few letters (a translated title, a subtitle left out) are not merged, and BibTeX and
   Endnote XML exports are not read yet. Check the pairs it shows, and the sheet "Duplicates removed".
@@ -312,12 +327,12 @@ translation of the terms), `translate.js` (English for results in other language
 the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, ClinicalTrials.gov, LA Referencia, DOAJ, CiNii Research, files to save), `checks.js`
 (study designs, retractions and corrections from Crossref, replications from FReD, DOAJ and hijacked journals), `review.js` (checking the search
 against known studies, citation searching, similar studies, your studies, what the results cite, the PRISMA flow
-diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted references), `zotero.js` (Send to Zotero), `combine.js` (reading other databases' exports and removing duplicates),
+diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted references), `zotero.js` (Send to Zotero), `combine.js` (reading other databases' exports and removing duplicates), `screen.js` (screening),
 `drive.js` (Google sign-in, the
 folder structure, adding new results to a save), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=40`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=41`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

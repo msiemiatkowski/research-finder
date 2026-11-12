@@ -3,7 +3,7 @@
    ID, or a near-identical title backed by the year and the first author, the journal or the pages. Pairs that only
    look alike go to the reviewer. The counts of each database and the duplicates removed are what the PRISMA 2020 flow
    diagram and PRISMA-S items 15 and 16 ask for. Nothing leaves the browser until you save to your own Drive. */
-import { $, h, fill, fmt, plural, norm, fold, toast, parseCsv, safeUrl } from "./util.js?v=40";
+import { $, h, fill, fmt, plural, norm, fold, toast, parseCsv, safeUrl } from "./util.js?v=41";
 
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 const pause = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -419,7 +419,8 @@ function show(out, ctx) {
         h("button", { type: "button", class: "btn btn-small", onclick: () => exportCsv(ctx) }, "Export CSV"),
         h("button", { type: "button", class: "btn btn-small", onclick: () => ctx.download(`combined-${today()}.ris`, ctx.ris(r.merged), "application/x-research-info-systems", `Exported ${plural(r.merged.length, "record")}`) }, "Export RIS"),
         h("button", { type: "button", class: "btn btn-small", onclick: () => exportRemoved(ctx) }, "Duplicates removed (CSV)"),
-        h("button", { type: "button", class: "btn btn-small", onclick: () => ctx.download(`prisma-flow-diagram-${today()}.svg`, ctx.prisma(counts(r)), "image/svg+xml", "Flow diagram downloaded") }, "PRISMA diagram (SVG)")));
+        h("button", { type: "button", class: "btn btn-small", onclick: () => ctx.download(`prisma-flow-diagram-${today()}.svg`, ctx.prisma(counts(r)), "image/svg+xml", "Flow diagram downloaded") }, "PRISMA diagram (SVG)"),
+        ctx.screen ? h("button", { type: "button", class: "btn btn-small", onclick: () => ctx.screen(r.merged, { name: `Combined search ${job.date}`, source: `Combined search: ${job.labels.join(", ")}`, terms: [] }) }, "Screen these records") : null));
   };
   const saveBox = h("div", { class: "save-progress" });
   const pairsBox = h("ol", { class: "cb-pairs" });

@@ -1,19 +1,20 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=40";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON } from "./util.js?v=40";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS } from "./terms.js?v=40";
+import { CONFIG } from "../config.js?v=41";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON } from "./util.js?v=41";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS } from "./terms.js?v=41";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=40";
+  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=41";
 import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle, englishTitles,
-  SAVE_TRANSLATIONS } from "./translate.js?v=40";
+  SAVE_TRANSLATIONS } from "./translate.js?v=41";
 import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave, addToSave, detailsText,
-  RECORD } from "./drive.js?v=40";
+  RECORD } from "./drive.js?v=41";
 import { DESIGN_NAMES, designsOf, designText, checksOn, checkUpdates, updatesOf, updatesText, SERIOUS, loadReplications, replicationsDate,
-  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate } from "./checks.js?v=40";
-import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount } from "./review.js?v=40";
-import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=40";
-import { openZotero, keyForm } from "./zotero.js?v=40";
-import { openCombine } from "./combine.js?v=40";
+  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate } from "./checks.js?v=41";
+import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount, parseIds } from "./review.js?v=41";
+import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=41";
+import { openZotero, keyForm } from "./zotero.js?v=41";
+import { openCombine } from "./combine.js?v=41";
+import { openScreening } from "./screen.js?v=41";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8, trials: 25, regional: 10 };
@@ -544,6 +545,7 @@ function renderToolbar(status) {
         ["PRISMA 2020 flow diagram (SVG), with the numbers of this search", exportPrisma],
       ], "Download the results shown, with their abstracts") : null,
       results.length && studiesTab ? h("button", { type: "button", class: "btn btn-small", onclick: openOverview, title: "Years, types, languages, the authors' countries and journals of all the results" }, "Overview") : null,
+      results.length ? h("button", { type: "button", class: "btn btn-small", onclick: () => openScreening(screenCtx), title: "Screen the titles and abstracts, the likely relevant ones first" }, "Screen") : null,
       results.length && studiesTab ? menu("Review tools ▾", [
         ["Check your search against studies it should find", () => openTools("check", toolsCtx)],
         ["Citation search from your studies", () => openTools("chase", toolsCtx)],
@@ -630,7 +632,7 @@ function rowOf(r, i, en, checks, tab = state.tab) {
    Covidence, ASReview) import. */
 const RIS_TYPES = { article: "JOUR", review: "JOUR", editorial: "JOUR", letter: "JOUR", preprint: "UNPB", book: "BOOK", monograph: "BOOK",
   "book-chapter": "CHAP", dissertation: "THES", dataset: "DATA" };
-function risOf(records, en = translationsOn(), checks = state.tab === "studies") {
+function risOf(records, en = translationsOn(), checks = state.tab === "studies", more = () => []) {
   const tag = (t, v) => (v == null || v === "" ? "" : `${t}  - ${String(v).replace(/\s+/g, " ").trim()}\r\n`);
   // the English of a title goes into a note that says what it is (Zotero would file a "translated title" unlabelled)
   const english = (r) => { const t = en ? englishTitle(r) : ""; return t ? `Title in English, an automatic translation (Wikimedia MinT), not a professional one: ${t}` : ""; };
@@ -662,6 +664,7 @@ function risOf(records, en = translationsOn(), checks = state.tab === "studies")
     tag("N1", note("Study design, tagged automatically by OpenAlex", designText(r))),
     tag("N1", note("Replications in the FORRT Replication Database (FReD)", replicationsCell(r))),
     tag("N1", hijackOf(r) ? note("Journal warning", journalText(r)) : ""),
+    ...more(r).map((x) => tag("N1", x)),
     "ER  - \r\n",
   ].join("")).join("\r\n");
 }
@@ -801,6 +804,28 @@ const combineCtx = {
     });
   },
 };
+
+/* ------------------------------------------------------------------ screening */
+const screenCtx = {
+  current: () => (results.length && state.groups.length ? { name: state.input, shown: results.length, total,
+    terms: [...new Set(groupsForSearch().flat().map((t) => t.text))] } : null),
+  collect: (count, progress) => collect(count, progress),
+  english: async (rows) => rows.map((r) => ({ ...r, en: translationsOn() ? englishTitle(r) : "" })),
+  download: (name, text, type, message) => downloadFile(name, text, type, message),
+  ris: (records, notes) => risOf(records, false, false, notes),
+  prisma: (c) => prismaSvg(c),
+  known: () => parseIds(local.get("known", "")),
+  link,
+  async save({ title, header, rows, ris, details, prisma, progress }) {
+    if (!driveConfigured()) throw new Error("saving to Google Drive is not set up on this copy of the site");
+    if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
+    return saveSearch({
+      title: `${title} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`, header, rows, ris, jobs: [], maxFile: 0, maxTotal: 0,
+      onProgress: progress, detailsHtml: details, extras: [{ name: "PRISMA flow diagram.svg", type: "image/svg+xml", text: prisma }], onSignIn: () => connect(),
+    });
+  },
+};
+combineCtx.screen = (records, meta) => { $("#tools").close(); openScreening(screenCtx, records, meta); };
 
 /* ------------------------------------------------------------------ versions of a questionnaire */
 /* A scale's name (and its acronym) with the method words of validation and adaptation, translated into 39 languages;
@@ -1985,6 +2010,8 @@ function renderAbout() {
     h("p", {}, "“Overview”, above the results, counts all of them with OpenAlex: by year, type and language, by the countries of the authors' institutions and whether an author works in the Global South, by journal, and by open access. Each bar filters the results by it, so that, for example, the studies with an author in the Global South can be screened on their own."),
     h("h3", {}, "Regional databases and questionnaires"),
     h("p", {}, "The tab “Regional databases” searches LA Referencia (theses and articles from Latin American repositories, with the English, Spanish and Portuguese terms), DOAJ (articles of open-access journals worldwide, with all the terms) and, with your free application ID, CiNii Research (Japanese articles). “Versions of a questionnaire”, under the search box, finds the studies that validate or adapt a scale in other languages, and the filter “Questionnaires and scales” in Datasets finds documented measures from GESIS's ZIS and ZPID's PsychArchives."),
+    h("h3", {}, "Screening"),
+    h("p", {}, "“Screen” shows the records one at a time to include, mark maybe or exclude with a reason, by keyboard or buttons. After the first include and exclude, a text model (TF-IDF of words and word pairs, logistic regression, retrained as you decide; the idea of ASReview, rebuilt in the page) ranks the rest so that the records most like your included ones come first. It never decides. Stopping checks (SAFE's heuristics and the statistical test of Callaghan and Müller-Hansen) advise when most relevant records are likely found. A second reviewer screens from a project file and sends back their decisions, which give agreement, Cohen's kappa, PABAK and the conflicts to resolve. Decisions are kept in your browser and export to ASReview, Covidence or Rayyan, or to your Drive with a record for the methods and the PRISMA flow diagram."),
     h("h3", {}, "Combining searches"),
     h("p", {}, "“Remove the duplicates”, under the search box, puts the exports of your other database searches (RIS, PubMed, Web of Science, Scopus CSV) together with this search's results. Records with the same DOI or PubMed ID, and records whose titles are near-identical and whose year and first author, journal or pages agree, are taken as one study; pairs that only look alike are shown to you to decide. The result is one record per study with the databases it was found in, the duplicates removed and why, and each database's count for the PRISMA flow diagram and PRISMA-S items 15 and 16. The files are read in your browser."),
     h("h3", {}, "Registered studies"),
@@ -2118,6 +2145,7 @@ $("#drive-btn").addEventListener("click", async () => {
   try { await connect(); toast("Google Drive connected"); } catch (e) { toast(e.message, 5000); }
 });
 $("#settings-btn").addEventListener("click", openSettings);
+if ($("#screen-btn")) $("#screen-btn").addEventListener("click", () => openScreening(screenCtx));
 $("#earlier-close").addEventListener("click", () => $("#earlier").close());
 $("#tools-close").addEventListener("click", () => $("#tools").close());
 $("#save-close").addEventListener("click", () => $("#save").close());

@@ -13,8 +13,8 @@
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset
      and, each time the search is run again, "New results <date>" (a sheet and a RIS file) with only the new ones. */
-import { CONFIG } from "../config.js?v=40";
-import { parseCsv } from "./util.js?v=40";
+import { CONFIG } from "../config.js?v=41";
+import { parseCsv } from "./util.js?v=41";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";

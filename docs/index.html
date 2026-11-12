@@ -13,9 +13,9 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=40">
-  <script type="module" src="js/main.js?v=40"></script>
-  <script type="module" src="js/landing.js?v=40"></script>
+  <link rel="stylesheet" href="style.css?v=41">
+  <script type="module" src="js/main.js?v=41"></script>
+  <script type="module" src="js/landing.js?v=41"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -43,6 +43,7 @@
         <a class="nav-jump" href="#output">What you get</a>
         <a class="nav-jump" href="#faq">Questions</a>
         <a href="#about" id="about-link">How it works</a>
+        <button type="button" class="nav-btn" id="screen-btn">Screening</button>
         <button type="button" class="nav-btn" id="settings-btn">Settings</button>
         <button type="button" class="btn btn-small btn-drive" id="drive-btn">Connect Google Drive</button>
       </nav>
@@ -154,6 +155,7 @@
               <li><h4>The search, checked</h4><p>Paste studies the search should find and see which it misses, and why: its relative recall. Search the citations of your included studies, backward and forward, find studies like them, and find the studies your results cite that the search does not.</p></li>
               <li><h4>The search, kept up to date</h4><p>Run a saved search again with the same queries, and only the new records are added to its folder, with a list of the studies saved before that have since been retracted. A calendar reminder brings you back every month.</p></li>
               <li><h4>The search, documented</h4><p>Sources, date, every term and translation, filters, the exact queries and the record counts, the PRISMA-S items, a methods paragraph, what was automated, and a PRISMA 2020 flow diagram with the numbers filled in.</p></li>
+              <li><h4>Screening, the likely relevant first</h4><p>Screen titles and abstracts from the keyboard, with exclusion reasons; the records most like the ones you include come next. Stopping checks advise when you have found most of them, and a second reviewer’s decisions give agreement and conflicts.</p></li>
               <li><h4>Your other databases, deduplicated</h4><p>Drop in your exports from Scopus, Web of Science, PubMed, PsycINFO or Embase: one record per study, where each was found, the duplicates removed (the uncertain pairs for you to decide), and each database’s count for the PRISMA flow diagram.</p></li>
               <li><h4>A head start in your other databases</h4><p>Copy the Boolean string to adapt for Scopus, Web of Science or PsycINFO, or open it in PubMed, Google Scholar or BASE.</p></li>
             </ul>
@@ -424,6 +426,10 @@ ER  - </code></pre>
           <details>
             <summary>Can it find trials, reviews or observational studies?</summary>
             <p>Yes, with the filter “Study design”. OpenAlex tags seven designs automatically from a study’s title and abstract: randomized controlled trials, clinical trials, observational studies, case reports, systematic reviews, meta-analyses and study protocols. The tags are rarely wrong, but many studies have none, including every study without an abstract, so use the filter to find studies, not to leave any out of a review.</p>
+          </details>
+          <details>
+            <summary>Can I screen the records here?</summary>
+            <p>Yes: “Screen” above the results, or “Screening” at the top of the page. Records come one at a time: include, maybe or exclude (with one of nine reasons you can rename), with notes and undo, by keyboard (I, M, E, 1–9, U) or buttons. After your first include and exclude, a text model ranks the rest so that the records most like your included ones come first, retrained as you go: the idea of ASReview, rebuilt in the page, which ranks the records and never decides. A panel shows the SAFE heuristics and a statistical stopping test (95% recall), as advice. A second reviewer can screen the same records on their own computer from a project file and send their decisions back; you get agreement, Cohen’s kappa and the conflicts to resolve. Decisions stay in your browser and can be exported for ASReview (with its labels), Covidence or Rayyan, or saved to your Drive with a screening record for your methods.</p>
           </details>
           <details>
             <summary>Can it combine my other database searches and remove the duplicates?</summary>

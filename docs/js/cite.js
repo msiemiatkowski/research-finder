@@ -2,7 +2,7 @@
    BibTeX and CSL-JSON files, and references formatted in any CSL citation style, by the DOI Foundation's formatter
    (citation.doi.org, which uses the metadata registered with the DOI) or, for a record without a DOI, made here in
    APA style from OpenAlex's data. Nothing here costs any of the OpenAlex allowance. */
-import { $, h, fill, fmt, plural, fold, norm, local, toast, safeUrl, stripHtml } from "./util.js?v=40";
+import { $, h, fill, fmt, plural, fold, norm, local, toast, safeUrl, stripHtml } from "./util.js?v=41";
 
 const pause = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });

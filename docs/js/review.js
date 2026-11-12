@@ -3,9 +3,9 @@
    and the PRISMA 2020 flow diagram. Every OpenAlex request here is a list
    by identifier (1 credit) unless it says otherwise; a check of what the search finds costs a search (10 credits) per
    part of the query. */
-import { $, h, fill, fmt, plural, norm, local, NO_SPACES } from "./util.js?v=40";
-import { SOURCES, KIND_NAMES, worksByIds, citingWorks } from "./sources.js?v=40";
-import { openCite } from "./cite.js?v=40";
+import { $, h, fill, fmt, plural, norm, local, NO_SPACES } from "./util.js?v=41";
+import { SOURCES, KIND_NAMES, worksByIds, citingWorks } from "./sources.js?v=41";
+import { openCite } from "./cite.js?v=41";
 
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -235,9 +235,9 @@ export function prismaSvg(c) {
   const dbs = (c.databases || []).length === 1 ? c.databases[0][0] : (c.databases || []).map(([name, v]) => `${name} ${n(v)}`).join("\n");
   const rows = [
     { boxes: [[0, `Records identified from:\nDatabases ${n(c.databases && c.databases.length ? c.databases.reduce((s, [, v]) => s + (v || 0), 0) : null)}\n${dbs}\nRegisters ${n(c.registers)}`],
-      [1, `Records removed before screening:\nDuplicate records removed ${n(c.duplicates)}\nRecords marked as ineligible by automation tools ${n(null)}\nRecords removed for other reasons ${n(c.otherRemoved)}`],
+      [1, `Records removed before screening:\nDuplicate records removed ${n(c.duplicates)}\nRecords marked as ineligible by automation tools ${n(c.automation)}\nRecords removed for other reasons ${n(c.otherRemoved)}`],
       [2, `Records identified from:\nWebsites ${n(null)}\nOrganisations ${n(null)}\nCitation searching ${n(c.citation)}`]] },
-    { boxes: [[0, `Records screened\n${n(c.screened)}`], [1, `Records excluded\n${n(null)}`]] },
+    { boxes: [[0, `Records screened\n${n(c.screened)}`], [1, `Records excluded\n${n(c.excluded)}`]] },
     { boxes: [[0, `Reports sought for retrieval\n${n(null)}`], [1, `Reports not retrieved\n${n(null)}`], [2, `Reports sought for retrieval\n${n(null)}`], [3, `Reports not retrieved\n${n(null)}`]] },
     { boxes: [[0, `Reports assessed for eligibility\n${n(null)}`], [1, `Reports excluded:\nReason 1 ${n(null)}\nReason 2 ${n(null)}\nReason 3 ${n(null)}`],
       [2, `Reports assessed for eligibility\n${n(null)}`], [3, `Reports excluded:\nReason 1 ${n(null)}\nReason 2 ${n(null)}`]] },
