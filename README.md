@@ -202,7 +202,18 @@ limited to the files the app creates (`drive.file`).
    names after " | " (an acronym in capitals is not translated), and the keyword `[validation or adaptation]` is the
    bundle of method words, translated by MinT without the study-wording step. Datasets' filter "Questionnaires and
    scales only" asks DataCite alone for `prefix:10.6102 OR (prefix:10.23668 AND types.resourceType:test)`.
-14. **Journals and Zotero.** OpenAlex's `is_in_doaj` gives a DOAJ badge linking to the journal's DOAJ page. Retraction
+14. **Combining searches.** `combine.js` reads exports in the browser: RIS (Scopus, Web of Science, EBSCO, Ovid; `TI`/`T1`,
+   `AU`/`A1`, `PY`/`Y1`, `T2`/`JF`, `DO`, `AB`/`N2`, the database from `DB`/`DP`), PubMed MEDLINE (.nbib), Web of
+   Science plain text and tab-delimited, and CSV with a Title column (Scopus's columns, or any table). Records are
+   compared within blocks (the same DOI, PubMed ID, or the first or last 20 letters of the title): the same DOI or PMID
+   is one study; titles at least 97% alike (Dice coefficient on letter pairs of the normalised title) with the year (or
+   year ±1 when two details agree) and the first author, journal, or volume and first page are one study; correction
+   and retraction notices are never merged with their article; titles 85–97% alike, and near-identical titles with
+   different DOIs (a preprint and its article), go to the reviewer, whose decisions are applied as a union-find over
+   the pairs. Each group keeps its fullest record, filled in from the others, with "Found in". Outputs: CSV, RIS, the
+   duplicates removed (with the kept record and the reason), the PRISMA 2020 diagram with each database's count and the
+   duplicates removed, or a Drive folder with all of them and a "Search details" for PRISMA-S items 15 and 16.
+15. **Journals and Zotero.** OpenAlex's `is_in_doaj` gives a DOAJ badge linking to the journal's DOAJ page. Retraction
    Watch's Hijacked Journal Checker (a Google Sheet read through `gviz/tq?tqx=out:csv`, kept a day in the browser)
    gives the web addresses of fake copies of real journals; a study whose landing page or PDF is on one is flagged
    (the shared ISSN alone is not used, as the copies take it from the real journal). "Send to Zotero" checks the
@@ -241,6 +252,9 @@ limited to the files the app creates (`drive.file`).
   without a key a large search may stop early (then what it got is added and the next run adds the rest). New records
   are newly retrieved, not necessarily newly published. OpenAlex recomputes its similar works from time to time, so
   "More like these" can give other studies later.
+- Deduplication is rule-based, not checked against a gold standard: records without DOIs or PubMed IDs whose titles
+  differ by more than a few letters (a translated title, a subtitle left out) are not merged, and BibTeX and
+  Endnote XML exports are not read yet. Check the pairs it shows, and the sheet "Duplicates removed".
 - The overview's counts are OpenAlex's: a study two parts of a search find counts twice, countries are those of the
   authors' institutions (not of the samples), and OpenAlex's language labels overstate English.
 - The regional databases overlap with OpenAlex by an unmeasured amount, DOAJ's relevance ranking is loose for short
@@ -298,12 +312,12 @@ translation of the terms), `translate.js` (English for results in other language
 the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, ClinicalTrials.gov, LA Referencia, DOAJ, CiNii Research, files to save), `checks.js`
 (study designs, retractions and corrections from Crossref, replications from FReD, DOAJ and hijacked journals), `review.js` (checking the search
 against known studies, citation searching, similar studies, your studies, what the results cite, the PRISMA flow
-diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted references), `zotero.js` (Send to Zotero),
+diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted references), `zotero.js` (Send to Zotero), `combine.js` (reading other databases' exports and removing duplicates),
 `drive.js` (Google sign-in, the
 folder structure, adding new results to a save), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=39`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=40`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

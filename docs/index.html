@@ -13,9 +13,9 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=39">
-  <script type="module" src="js/main.js?v=39"></script>
-  <script type="module" src="js/landing.js?v=39"></script>
+  <link rel="stylesheet" href="style.css?v=40">
+  <script type="module" src="js/main.js?v=40"></script>
+  <script type="module" src="js/landing.js?v=40"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -69,7 +69,8 @@
               <button type="button" class="try example">Klimawandel, Gesundheit</button>
               <button type="button" class="try example">microplastics, drinking water</button>
             </p>
-            <p class="hint finder-hint"><button type="button" class="link-btn finder-link" id="finder-link">Looking for versions of a questionnaire in other languages?</button></p>
+            <p class="hint finder-hint"><button type="button" class="link-btn finder-link" id="finder-link">Looking for versions of a questionnaire in other languages?</button>
+              <button type="button" class="link-btn finder-link" id="combine-link">Searched several databases? Remove the duplicates</button></p>
           </form>
           <ul class="facts" aria-label="In short">
             <li>Free and open source</li>
@@ -153,6 +154,7 @@
               <li><h4>The search, checked</h4><p>Paste studies the search should find and see which it misses, and why: its relative recall. Search the citations of your included studies, backward and forward, find studies like them, and find the studies your results cite that the search does not.</p></li>
               <li><h4>The search, kept up to date</h4><p>Run a saved search again with the same queries, and only the new records are added to its folder, with a list of the studies saved before that have since been retracted. A calendar reminder brings you back every month.</p></li>
               <li><h4>The search, documented</h4><p>Sources, date, every term and translation, filters, the exact queries and the record counts, the PRISMA-S items, a methods paragraph, what was automated, and a PRISMA 2020 flow diagram with the numbers filled in.</p></li>
+              <li><h4>Your other databases, deduplicated</h4><p>Drop in your exports from Scopus, Web of Science, PubMed, PsycINFO or Embase: one record per study, where each was found, the duplicates removed (the uncertain pairs for you to decide), and each database’s count for the PRISMA flow diagram.</p></li>
               <li><h4>A head start in your other databases</h4><p>Copy the Boolean string to adapt for Scopus, Web of Science or PsycINFO, or open it in PubMed, Google Scholar or BASE.</p></li>
             </ul>
           </div>
@@ -422,6 +424,10 @@ ER  - </code></pre>
           <details>
             <summary>Can it find trials, reviews or observational studies?</summary>
             <p>Yes, with the filter “Study design”. OpenAlex tags seven designs automatically from a study’s title and abstract: randomized controlled trials, clinical trials, observational studies, case reports, systematic reviews, meta-analyses and study protocols. The tags are rarely wrong, but many studies have none, including every study without an abstract, so use the filter to find studies, not to leave any out of a review.</p>
+          </details>
+          <details>
+            <summary>Can it combine my other database searches and remove the duplicates?</summary>
+            <p>Yes: “Searched several databases? Remove the duplicates”, under the search box, or Review tools › Combine. Drop in the exports of your other searches: RIS from Scopus, Web of Science, PsycINFO (EBSCO), Embase (Ovid) or any reference manager, PubMed’s .nbib or MEDLINE text, Web of Science’s plain text or tab-delimited files, Scopus’s CSV, or any CSV with a Title column. Research Finder puts them together with this search’s results and removes the duplicates: the same DOI or PubMed ID, or a near-identical title whose year and first author, journal or pages agree. Pairs that only look alike are shown to you to decide. You get one record per study with the databases it was found in, a list of the duplicates removed and why, each database’s count, and a PRISMA flow diagram with them filled in, as files or saved to your Drive with a Search details for PRISMA-S items 15 and 16. The files are read in your browser and sent nowhere.</p>
           </details>
           <details>
             <summary>Can it find the versions of a questionnaire in other languages?</summary>

@@ -13,8 +13,8 @@
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset
      and, each time the search is run again, "New results <date>" (a sheet and a RIS file) with only the new ones. */
-import { CONFIG } from "../config.js?v=39";
-import { parseCsv } from "./util.js?v=39";
+import { CONFIG } from "../config.js?v=40";
+import { parseCsv } from "./util.js?v=40";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -257,7 +257,7 @@ const jsonBlob = (x) => new Blob([JSON.stringify(x, null, 1)], { type: "applicat
    reference managers and screening tools. extras: other files for the folder, [{ name, type, text }]. record: what
    Research Finder needs to run the search again (saved as RECORD). onSignIn: called when the sign-in runs out;
    resolves once connected again. */
-export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, extras = [], record = null, maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
+export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, extras = [], tables = [], record = null, maxFile, maxTotal, onProgress = () => {}, onSignIn = null }) {
   signIn = onSignIn;
   try {
     const root = await appFolder();
@@ -273,6 +273,7 @@ export async function saveSearch({ title, header, rows, ris, jobs, detailsHtml, 
       onProgress("Listing every file in a sheet…");
       files = await table("Files", fileRows(jobs), folder.id);
     }
+    for (const t of tables) await table(t.name, t.rows, folder.id);
     onProgress("Writing the search details…");
     const html = typeof detailsHtml === "function" ? detailsHtml({ papers, dataFiles, bytes, failed, relayed }) : detailsHtml;
     const doc = await upload({ name: "Search details", mimeType: DOC, parents: [folder.id] }, new Blob([html], { type: "text/html" }));

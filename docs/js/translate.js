@@ -6,8 +6,8 @@
    sentence of its own ("The report also highlights…"); a translation whose back-translation shares too little with
    the original, or that opens or repeats itself the way those sentences do, is tried again (as a sentence or not, then
    after the word for "title"), and if it still fails it is not shown. */
-import { local, norm } from "./util.js?v=39";
-import { LANG_NAMES, MINT, mint } from "./terms.js?v=39";
+import { local, norm } from "./util.js?v=40";
+import { LANG_NAMES, MINT, mint } from "./terms.js?v=40";
 
 const MIN_OVERLAP = 0.2;       // share of the original's letter groups its back-translation must have
 const SUSPECT_OVERLAP = 0.4;   // the same, for a translation that looks made up

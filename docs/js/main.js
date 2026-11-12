@@ -1,18 +1,19 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=39";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON } from "./util.js?v=39";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS } from "./terms.js?v=39";
+import { CONFIG } from "../config.js?v=40";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON } from "./util.js?v=40";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS } from "./terms.js?v=40";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=39";
+  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=40";
 import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle, englishTitles,
-  SAVE_TRANSLATIONS } from "./translate.js?v=39";
+  SAVE_TRANSLATIONS } from "./translate.js?v=40";
 import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave, addToSave, detailsText,
-  RECORD } from "./drive.js?v=39";
+  RECORD } from "./drive.js?v=40";
 import { DESIGN_NAMES, designsOf, designText, checksOn, checkUpdates, updatesOf, updatesText, SERIOUS, loadReplications, replicationsDate,
-  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate } from "./checks.js?v=39";
-import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount } from "./review.js?v=39";
-import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=39";
-import { openZotero, keyForm } from "./zotero.js?v=39";
+  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate } from "./checks.js?v=40";
+import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount } from "./review.js?v=40";
+import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=40";
+import { openZotero, keyForm } from "./zotero.js?v=40";
+import { openCombine } from "./combine.js?v=40";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8, trials: 25, regional: 10 };
@@ -548,6 +549,7 @@ function renderToolbar(status) {
         ["Citation search from your studies", () => openTools("chase", toolsCtx)],
         ["More like these: studies similar to yours", () => openTools("similar", toolsCtx)],
         ["What your results cite most", () => openTools("cited", toolsCtx)],
+        ["Combine with other databases' exports and remove duplicates", () => openCombine(combineCtx)],
         [`Your studies (${fmt(mineCount())}): see, cite or export them`, () => openTools("mine", toolsCtx)],
       ], "Check the search, search citations, find similar studies and key studies the search misses") : null));
   const settings = (label) => h("button", { type: "button", class: "btn btn-small", onclick: openSettings }, label);
@@ -779,6 +781,26 @@ async function exportRis() {
   await checksFirst(results);
   downloadFile(`research-finder-${fileDate()}.ris`, risOf(results), "application/x-research-info-systems");
 }
+
+/* ------------------------------------------------------------------ combining with other databases */
+const combineCtx = {
+  current: () => (results.length && state.groups.length
+    ? { label: { studies: "OpenAlex", trials: "ClinicalTrials.gov" }[state.tab] || SOURCES[state.tab].name, split: state.tab === "data" || state.tab === "regional",
+      shown: results.length, total, query: state.input, link: location.href } : null),
+  collect: (count, progress) => collect(count, progress),
+  download: (name, text, type, message) => downloadFile(name, text, type, message),
+  ris: (records) => risOf(records, false, false),
+  prisma: (c) => prismaSvg(c),
+  link,
+  async save({ title, header, rows, records, details, tables, prisma, progress }) {
+    if (!driveConfigured()) throw new Error("saving to Google Drive is not set up on this copy of the site");
+    if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
+    return saveSearch({
+      title: `${title} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`, header, rows, ris: risOf(records, false, false), jobs: [], maxFile: 0, maxTotal: 0,
+      onProgress: progress, detailsHtml: details, tables, extras: [{ name: "PRISMA flow diagram.svg", type: "image/svg+xml", text: prisma }], onSignIn: () => connect(),
+    });
+  },
+};
 
 /* ------------------------------------------------------------------ versions of a questionnaire */
 /* A scale's name (and its acronym) with the method words of validation and adaptation, translated into 39 languages;
@@ -1963,6 +1985,8 @@ function renderAbout() {
     h("p", {}, "“Overview”, above the results, counts all of them with OpenAlex: by year, type and language, by the countries of the authors' institutions and whether an author works in the Global South, by journal, and by open access. Each bar filters the results by it, so that, for example, the studies with an author in the Global South can be screened on their own."),
     h("h3", {}, "Regional databases and questionnaires"),
     h("p", {}, "The tab “Regional databases” searches LA Referencia (theses and articles from Latin American repositories, with the English, Spanish and Portuguese terms), DOAJ (articles of open-access journals worldwide, with all the terms) and, with your free application ID, CiNii Research (Japanese articles). “Versions of a questionnaire”, under the search box, finds the studies that validate or adapt a scale in other languages, and the filter “Questionnaires and scales” in Datasets finds documented measures from GESIS's ZIS and ZPID's PsychArchives."),
+    h("h3", {}, "Combining searches"),
+    h("p", {}, "“Remove the duplicates”, under the search box, puts the exports of your other database searches (RIS, PubMed, Web of Science, Scopus CSV) together with this search's results. Records with the same DOI or PubMed ID, and records whose titles are near-identical and whose year and first author, journal or pages agree, are taken as one study; pairs that only look alike are shown to you to decide. The result is one record per study with the databases it was found in, the duplicates removed and why, and each database's count for the PRISMA flow diagram and PRISMA-S items 15 and 16. The files are read in your browser."),
     h("h3", {}, "Registered studies"),
     h("p", {}, "The tab “Registered studies” searches ClinicalTrials.gov, more than 600,000 registered trials and observational studies, with the English terms of your keywords. Each registration shows its status, phase, participants and whether results are posted, with the publications it lists; registrations of completed studies without a publication are a check on publication bias. Studies whose abstracts give a registration number (NCT or ISRCTN) link to it."),
     h("h3", {}, "References and your library"),
@@ -2104,6 +2128,7 @@ document.querySelectorAll(".example").forEach((b) => b.addEventListener("click",
 }));
 $("#more").addEventListener("click", showMore);
 if ($("#finder-link")) $("#finder-link").addEventListener("click", openFinder);
+if ($("#combine-link")) $("#combine-link").addEventListener("click", () => openCombine(combineCtx));
 $("#about-link").addEventListener("click", openAbout);
 document.querySelectorAll(".close-panel").forEach((b) => b.addEventListener("click", () => { $("#" + b.dataset.close).hidden = true; }));
 $("#home-link").addEventListener("click", (e) => { e.preventDefault(); $("#about").hidden = true; state.filters = emptyFilters(); setQuery(""); });
