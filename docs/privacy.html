@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'">
   <title>Privacy policy · Research Finder</title>
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=42">
+  <link rel="stylesheet" href="style.css?v=43">
 </head>
 <body>
   <header class="top">
@@ -58,6 +59,17 @@
         the papers, figshare and OSF are asked for the lists of files of their datasets, and the open PDFs and data files
         are downloaded by your browser from where they are published. Their own privacy policies apply to those
         requests. Research Finder does not see or keep them.</p>
+      <p>AI helpers (optional). If you add a key for Claude (Anthropic), OpenAI, Gemini (Google) or OpenRouter under
+        Settings, each helper you use sends, from your browser straight to that service, the titles, abstracts and
+        keywords of the studies involved and your question, criteria or keywords. Research Finder does not see or keep
+        any of it. That service's own terms and privacy policy apply, it bills you for what you use, and some free plans
+        use what you send to improve their models; requests to OpenAI ask it not to store the response. To estimate what
+        a run costs, your browser reads OpenRouter's public list of models and prices, which sends nothing about you or
+        your search. The key is kept for the browser tab (session storage) unless you ask to remember it in this browser
+        (local storage), and it is never put in a save, an export or an address. “Connect with OpenRouter” takes you to
+        OpenRouter to sign in; it sends this page back a one-time code, which your browser exchanges with OpenRouter for a
+        key of your own. The AI's screening suggestions are kept with the screening project in your browser, and they go
+        into the files you export or save.</p>
       <p>File relay (optional). OSF, figshare and many publishers do not let web pages download their files. If you
         connect a file relay under Settings, Research Finder sends the addresses of those files (OSF and figshare files,
         and the open PDFs your browser could not download itself) to that relay, which fetches each file and passes it
@@ -65,7 +77,8 @@
         your own free Cloudflare account (<a href="relay/worker.js">its code</a>). Without one, nothing is sent to a relay
         and those files are listed with their links.</p>
       <p>Settings you choose (languages, an OpenAlex key, a file relay, your library's link resolver and proxy, the
-        citation style, whether to show translations and into which language, and whether to check for retractions), your studies (the list the review tools
+        citation style, whether to show translations and into which language, whether to check for retractions, and the AI
+        service and model you choose, with its key only if you ask to remember it), your studies (the list the review tools
         start from), a copy of Retraction Watch's list of hijacked journals, and the machine translations of your terms and of titles are stored only in your browser (local
         storage) and can be removed by clearing it. Your library's link resolver and proxy are used only to make the
         links “Find it at my library” and “Through my library”: when you click one, your browser opens your library's

@@ -9,8 +9,8 @@
    Into a language other than English, a title or abstract in a third language goes through English, which machine
    translation does far better: Chinese and Japanese titles translated straight into Polish often come out as
    sentences of their own, and through English they mostly do not. */
-import { local, norm } from "./util.js?v=42";
-import { LANG_NAMES, MINT, mint } from "./terms.js?v=42";
+import { local, norm } from "./util.js?v=43";
+import { LANG_NAMES, MINT, mint } from "./terms.js?v=43";
 
 const MIN_OVERLAP = 0.2;       // share of the original's letter groups its back-translation must have
 const SUSPECT_OVERLAP = 0.4;   // the same, for a translation that looks made up

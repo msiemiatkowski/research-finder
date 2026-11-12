@@ -1,20 +1,22 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=42";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON } from "./util.js?v=42";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS } from "./terms.js?v=42";
+import { CONFIG } from "../config.js?v=43";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON } from "./util.js?v=43";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS, addSuggested } from "./terms.js?v=43";
+import { aiReady, aiLabel, aiSettings, aiReturn, setAiContext, openExtract, openAsk, aiQuestion, howItMatches, suggestTerms, detailsCount, DETAIL_COLUMNS, detailCells,
+  aiDetails } from "./ai.js?v=43";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=42";
+  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=43";
 import { translationsOn, readingLanguage, translateFrom, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle,
-  englishTitles, saveLimit } from "./translate.js?v=42";
+  englishTitles, saveLimit } from "./translate.js?v=43";
 import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave, addToSave, detailsText,
-  RECORD } from "./drive.js?v=42";
+  RECORD } from "./drive.js?v=43";
 import { DESIGN_NAMES, designsOf, designText, checksOn, checkUpdates, updatesOf, updatesText, SERIOUS, loadReplications, replicationsDate,
-  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate } from "./checks.js?v=42";
-import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount, parseIds } from "./review.js?v=42";
-import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=42";
-import { openZotero, keyForm } from "./zotero.js?v=42";
-import { openCombine } from "./combine.js?v=42";
-import { openScreening } from "./screen.js?v=42";
+  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate } from "./checks.js?v=43";
+import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount, parseIds } from "./review.js?v=43";
+import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=43";
+import { openZotero, keyForm } from "./zotero.js?v=43";
+import { openCombine } from "./combine.js?v=43";
+import { openScreening } from "./screen.js?v=43";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8, trials: 25, regional: 10 };
@@ -187,9 +189,10 @@ function chip(t, g, onToggle) {
   const count = t.n ? (t.src === "studies" ? ` · a keyword of ${fmt(t.n)} of the ${read} studies read` : ` · in ${fmt(t.n)} of the ${read} studies read`) : "";
   const from = t.source && t.src === "mt" ? ` · of “${t.source}”` : "";
   const doubt = t.doubt ? " · it did not translate back to the same meaning, so it is left out unless you add it" : "";
+  const why = t.src === "ai" && t.why ? ` · ${t.why}${t.model ? ` (${t.model})` : ""}` : "";
   return h("button", {
     type: "button", class: `chip ${t.on ? "on" : "off"}${t.doubt ? " doubt" : ""}`, "aria-pressed": String(t.on),
-    title: `${SRC_LABEL[t.src]}${where}${from}${count}${doubt} · click to ${t.on ? "leave out" : "add"}`,
+    title: `${SRC_LABEL[t.src]}${where}${from}${count}${doubt}${why} · click to ${t.on ? "leave out" : "add"}`,
     onclick: () => { t.on = !t.on; onToggle(t); },
   }, t.text, t.n ? h("span", { class: "n" }, fmt(t.n)) : null);
 }
@@ -216,13 +219,16 @@ function groupCard(g) {
   const english = g.terms.filter((t) => !isTranslation(t));
   const searching = english.filter((t) => t.on || (g.edit && ["you", "alias", "variant", "mt"].includes(t.src)));
   const offered = english.filter((t) => !t.on && (t.src === "similar" || t.src === "studies"));
-  const off = english.filter((t) => !t.on);
+  const aiOffered = english.filter((t) => !t.on && t.src === "ai");
+  const off = english.filter((t) => !t.on && t.src !== "ai");
   const card = h("div", { class: "group" }, h("div", { class: "group-head" },
     h("span", { class: "group-label" }, g.label),
     g.wikidata ? h("a", { class: "concept-badge wd", href: `https://www.wikidata.org/wiki/${g.wikidata.id}`, target: "_blank", rel: "noopener noreferrer",
       title: `Wikidata: ${g.wikidata.description || g.wikidata.label}` }, g.wikidata.label) : null,
     g.studies ? h("span", { class: "group-meta", title: "Studies in OpenAlex with the keyword in the title or abstract" }, `${plural(g.studies.total, "study", "studies")} in OpenAlex`) : null,
     h("span", { class: "group-actions" },
+      aiReady() && !g.method && g.status === "done" ? h("button", { type: "button", class: "btn btn-small", disabled: Boolean(g.aiBusy), onclick: () => suggestFor([g]),
+        title: `Ask ${aiLabel()} for more terms for this keyword; you choose which to search` }, g.aiBusy ? "Asking the AI…" : "Suggest terms (AI)") : null,
       h("button", { type: "button", class: "btn btn-small", "aria-expanded": String(g.edit), onclick: () => { g.edit = !g.edit; renderGroups(); } }, g.edit ? "Done" : "Edit terms"),
       h("button", { type: "button", class: "btn btn-ghost btn-small", onclick: () => removeGroup(g), "aria-label": `Remove ${g.label}` }, "Remove"))));
   if (g.status === "pending" || g.stage) card.append(h("p", { class: "note pending" }, spinner(), g.stage || "Looking up the terms…"));
@@ -234,6 +240,11 @@ function groupCard(g) {
     variants.length && g.studies ? h("span", { class: "g-row-hint" }, `your words${g.wikidata ? ", synonyms" : ""} and the wordings found in the ${fmt(g.studies.read)} studies that match best`) : null),
     h("div", { class: "chips" }, searching.map((t) => chip(t, g, toggled)),
       !g.edit && off.length ? h("button", { type: "button", class: "link-btn", onclick: () => { g.edit = true; renderGroups(); } }, `${off.length} more suggestions`) : null)));
+  if (aiOffered.length) {
+    card.append(h("div", { class: "g-row" }, h("p", { class: "g-row-title" }, "Suggested by AI",
+      h("span", { class: "g-row-hint" }, `${aiOffered[0].model || "your AI service"}: click a term to search for it too; hover for why`)),
+      h("div", { class: "chips" }, aiOffered.map((t) => chip(t, g, toggled)))));
+  }
   if (g.edit && offered.length) {
     card.append(h("div", { class: "g-row" }, h("p", { class: "g-row-title" }, "Related phrases and keywords in these studies",
       h("span", { class: "g-row-hint" }, "click to search for them too")),
@@ -273,6 +284,30 @@ function groupCard(g) {
         x.text, x.n ? h("span", { class: "n" }, fmt(x.n)) : null)))));
   }
   return card;
+}
+
+/* More terms for keywords from the AI helper: offered under each keyword, searched only once switched on. */
+async function suggestFor(groups) {
+  if (!aiReady()) { openSettings("ai"); return; }
+  groups = groups.filter((g) => !g.method && g.status === "done" && !g.aiBusy);
+  if (!groups.length) { toast("The keywords are still being prepared: try again in a moment."); return; }
+  for (const g of groups) g.aiBusy = true;
+  renderGroups();
+  let added = 0, failed = "";
+  await Promise.all(groups.map(async (g) => {
+    try {
+      const existing = g.terms.filter((t) => !isTranslation(t)).map((t) => t.text);
+      const others = state.groups.filter((x) => x !== g).map((x) => x.label);
+      const { terms, model } = await suggestTerms(g.label, existing, others);
+      for (const t of terms) if (addSuggested(g, t.term, t.why, model)) added++;
+    } catch (e) {
+      failed = e.message;
+    } finally {
+      g.aiBusy = false;
+    }
+  }));
+  renderGroups();
+  toast(failed && !added ? `No suggestions: ${failed}.` : added ? `${plural(added, "term")} suggested by the AI, under the keywords: click the ones to search for too.` : "The AI had no new terms to suggest.", 6000);
 }
 
 function setLang(l, on) {
@@ -499,8 +534,28 @@ function renderRecord(r) {
   if (studies) for (const l of libraryLinks(r)) links.push(link(l.href, l.text, l.title));
   links.push(h("button", { type: "button", class: "link-btn", title: "Its reference in APA or another style, or as a file for a reference manager", onclick: () => openCite([r], toolsCtx) }, "Cite"));
   if (studies && r.oa) links.push(mineButton(r));
+  if (aiReady() && (r.full || r.abstract)) links.push(matchButton(r, li));
   li.append(h("div", { class: "r-links" }, links), coins(r));
   return li;
+}
+
+/* "How it matches (AI)": one or two sentences from the AI helper on how the study relates to the question. */
+function matchButton(r, li) {
+  const b = h("button", { type: "button", class: "link-btn", title: `Ask ${aiLabel()} how this study relates to your question (or keywords), from its title and abstract` }, "How it matches (AI)");
+  b.addEventListener("click", async () => {
+    const old = li.querySelector(".ai-note");
+    if (old) { old.remove(); return; }
+    const box = h("div", { class: "ai-note", role: "status" }, spinner(), " Asking the AI…");
+    li.querySelector(".r-links").after(box);
+    try {
+      const question = aiQuestion();
+      const { note, model } = await howItMatches(question, { key: r.key, title: r.title, abstract: r.full || r.abstract, keywords: r.keywords || [], year: r.year });
+      fill(box, h("p", { class: "tr-tag" }, `AI note (${model}) on “${question.length > 90 ? `${question.slice(0, 90)}…` : question}”, from the title and abstract only`), h("p", {}, note));
+    } catch (e) {
+      fill(box, h("p", { class: "note warn" }, `No note: ${e.message}.`));
+    }
+  });
+  return b;
 }
 
 /* Trial registration numbers a study gives in its abstract (ClinicalTrials.gov, ISRCTN), linked to the registry. */
@@ -557,6 +612,13 @@ function renderToolbar(status) {
       ], "Download the results shown, with their abstracts") : null,
       results.length && studiesTab ? h("button", { type: "button", class: "btn btn-small", onclick: openOverview, title: "Years, types, languages, the authors' countries and journals of all the results" }, "Overview") : null,
       results.length ? h("button", { type: "button", class: "btn btn-small", onclick: () => openScreening(screenCtx), title: "Screen the titles and abstracts, the likely relevant ones first" }, "Screen") : null,
+      results.length ? menu("AI helpers ▾", [
+        ["Ask the results a question", openAsk],
+        ["Study details from the abstracts: design, country, sample size, population", openExtract],
+        ["Suggest more search terms for your keywords", () => suggestFor(state.groups)],
+        ["Screen with AI suggestions against your criteria", () => openScreening(screenCtx)],
+        [aiReady() ? `Settings: ${aiLabel()}` : "Set up: your own key for Claude, OpenAI, Gemini or OpenRouter", () => openSettings("ai")],
+      ], "Optional helpers that use an AI service with your own key: they suggest, you decide") : null,
       results.length && studiesTab ? menu("Review tools ▾", [
         ["Check your search against studies it should find", () => openTools("check", toolsCtx)],
         ["Citation search from your studies", () => openTools("chase", toolsCtx)],
@@ -626,6 +688,7 @@ function header(en, checks, tab = state.tab) {
   if (tab === "trials") row.splice(6, 0, ...TRIAL_COLUMNS);
   else if (checks) row.splice(6, 0, ...CHECK_COLUMNS);
   if (en) row.splice(2, 0, enTitle());
+  if (detailsCount()) row.push(...DETAIL_COLUMNS);
   return row;
 }
 const trialCells = (r) => [STATUS_LABEL[r.status] || r.status || "", phaseText(r), CT_TYPES[r.studyType] || r.studyType || "", r.results ? "yes" : "no",
@@ -639,6 +702,7 @@ function rowOf(r, i, en, checks, tab = state.tab) {
   if (tab === "trials") row.splice(6, 0, ...trialCells(r));
   else if (checks) row.splice(6, 0, designText(r), updatesText(r), replicationsCell(r), journalText(r));
   if (en) row.splice(2, 0, englishTitle(r));
+  if (detailsCount()) row.push(...detailCells(r));
   return row;
 }
 
@@ -827,6 +891,7 @@ const screenCtx = {
   english: async (rows) => rows.map((r) => ({ ...r, en: titleColumn() ? englishTitle(r) : "" })),
   download: (name, text, type, message) => downloadFile(name, text, type, message),
   ris: (records, notes) => risOf(records, false, false, notes),
+  settings: () => openSettings("ai"),
   prisma: (c) => prismaSvg(c),
   known: () => parseIds(local.get("known", "")),
   link,
@@ -1662,6 +1727,7 @@ function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
     ["Deduplication", trials ? "Each registration is one record (its NCT number). [Describe how registrations were matched to publications and how duplicates across all sources were removed.]"
       : `Within this search, each record was kept once by its DOI${studies ? " or OpenAlex ID" : ", or by its title and year"}. [Describe how duplicates across all databases were removed, and with which software.]`],
   ];
+  const ai = aiDetails(esc, ["terms", "extract", "answer", "match"]);
   const steps = [
     `<li><b>Term suggestions.</b> Wordings counted in the titles and abstracts of the ${SAMPLE} studies in OpenAlex that match each keyword best (a rule-based count, no AI model)${mined ? `: ${fmt(mined)} were searched` : ""}; synonyms from Wikidata. Every term was shown, and the reviewers could switch any of them off.</li>`,
     machine ? `<li><b>Machine translation of the terms.</b> ${fmt(machine)} terms translated by Wikimedia's MinT (open neural machine translation models) on ${esc(day)}, each translated back into English as a check${doubted ? `; ${fmt(doubted)} that did not come back with the same meaning were left out` : ""}. [Say whether someone who reads the language checked them.]</li>` : "",
@@ -1671,6 +1737,7 @@ function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
     check ? `<li><b>Validation.</b> The search was checked against ${plural(check.works.length, "known study", "known studies")} (see “Search validation”).</li>` : "",
     review.similar ? `<li><b>Similar studies.</b> OpenAlex's related works, chosen by a machine-learned similarity of titles, abstracts and venues, suggested ${plural(review.similar.records.length, "study", "studies")} like ${plural(review.similar.seeds.length, "study", "studies")} of the reviewers' (“More like these”, ${esc(dateText(review.similar.date))}).</li>` : "",
     `<li><b>Deduplication</b> within the search by exact DOI or OpenAlex ID.</li>`,
+    ai.steps,
   ].filter(Boolean).join("");
   return `<h2>PRISMA 2020 flow diagram</h2>
 <p>“PRISMA flow diagram.svg” in this folder is the PRISMA 2020 flow diagram with the numbers this search gives: records identified from ${c.databases.length ? esc(c.databases.map(([n, v]) => `${n} (n = ${fmt(v)})`).join(", ")) : `the register ClinicalTrials.gov (n = ${fmt(c.registers)})`}${c.duplicates != null ? `, and ${fmt(c.duplicates)} duplicate records removed within the search` : ""}${c.citation != null ? `, and ${fmt(c.citation)} records from the citation search` : ""}. The other boxes show (n = …), to fill in after screening.${c.duplicates == null ? " Duplicates are not counted because not all results were saved." : ""} If you searched other databases too, add their records and count duplicates across all of them.</p>
@@ -1682,7 +1749,7 @@ function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
 <h2>Use of automation and AI</h2>
 <p>The 2025 position statement of Cochrane, the Campbell Collaboration, JBI and the Collaboration for Environmental Evidence asks reviews to report automation that makes or suggests judgements. In this search:</p>
 <ul>${steps}</ul>
-<p>None of these steps included or excluded a study. [Add how the reviewers checked the suggested terms and translations.]</p>`;
+<p>None of these steps included or excluded a study. [Add how the reviewers checked the suggested terms and translations${ai.steps ? ", and what the AI suggested" : ""}.]</p>${detailsCount() ? `<p>“Results” has four columns of study details (design, country or setting, sample size, population) that an AI model took out of the abstracts, each checked for the words it quotes; a value whose words are not in the abstract says so. They are suggestions to verify against the full texts.</p>` : ""}${ai.prompts}`;
 }
 
 function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks = null, savedAll = false) {
@@ -1718,6 +1785,7 @@ function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks 
       + (of(["alias", "mt"]).length ? `<p><b>Synonyms (Wikidata) and English translation:</b> ${list(of(["alias", "mt"]))}</p>` : "")
       + (of(["variant"]).length ? `<p><b>Wordings used in studies</b> (in how many of the studies read): ${list(of(["variant"]), true)}</p>` : "")
       + (of(["similar", "studies"]).length ? `<p><b>Related phrases and keywords added:</b> ${list(of(["similar", "studies"]), true)}</p>` : "")
+      + (of(["ai"]).length ? `<p><b>Suggested by an AI model and added by the reviewers:</b> ${list(of(["ai"]))}</p>` : "")
       + (wd.length ? `<p><b>Names in other languages (Wikidata):</b> ${named(wd)}</p>` : "")
       + (mt.length ? `<p><b>Machine translations</b> (Wikimedia MinT, each translated back into English as a check): ${named(mt)}</p>` : "")
       + (doubted ? `<p>${fmt(doubted)} machine translations did not translate back to the same meaning and were left out.</p>` : "");
@@ -1861,7 +1929,7 @@ function readSelect() {
       h("option", { value: code, selected: code === now }, code === own && code !== "en" ? `${name} (your browser's language)` : name)));
 }
 
-function openSettings() {
+function openSettings(focus) {
   const d = $("#settings");
   const key = h("input", { type: "password", autocomplete: "off", value: local.get("openalexKey", ""), placeholder: "optional", id: "set-key" });
   const langs = h("div", { class: "lang-grid" }, LANGS.map((l) => h("label", { class: "f-option" },
@@ -1942,6 +2010,8 @@ function openSettings() {
     h("h3", {}, h("label", { for: "set-cinii" }, "CiNii Research application ID (optional)")),
     h("p", { class: "note" }, "The tab “Regional databases” searches the Japanese database CiNii Research only with an application ID of your own, which CiNii asks for and gives free (",
       link("https://support.nii.ac.jp/en/cinii/api/developer", "register"), "). It is kept only in this browser and sent only to CiNii."), cinii,
+    h("h3", { id: "set-ai" }, "AI helpers (optional, your own key)"),
+    aiSettings(),
     h("h3", {}, "Zotero (optional)"),
     h("p", { class: "note" }, "With a key of your own, Export › Send to Zotero puts the results straight into your Zotero library, in a new collection."),
     keyForm(),
@@ -1958,6 +2028,7 @@ function openSettings() {
     if (state.groups.length) search(0);
   };
   if (!d.open) d.showModal();
+  if (focus === "ai") setTimeout(() => { const el = $("#set-ai"); if (el) el.scrollIntoView({ block: "start" }); }, 30);
 }
 
 async function copyRelayCode() {
@@ -2037,6 +2108,8 @@ function renderAbout() {
     h("p", {}, "The tab “Regional databases” searches LA Referencia (theses and articles from Latin American repositories, with the English, Spanish and Portuguese terms), DOAJ (articles of open-access journals worldwide, with all the terms) and, with your free application ID, CiNii Research (Japanese articles). “Versions of a questionnaire”, under the search box, finds the studies that validate or adapt a scale in other languages, and the filter “Questionnaires and scales” in Datasets finds documented measures from GESIS's ZIS and ZPID's PsychArchives."),
     h("h3", {}, "Screening"),
     h("p", {}, "“Screen” shows the records one at a time to include, mark maybe or exclude with a reason, by keyboard or buttons. After the first include and exclude, a text model (TF-IDF of words and word pairs, logistic regression, retrained as you decide; the idea of ASReview, rebuilt in the page) ranks the rest so that the records most like your included ones come first. It never decides. Stopping checks (SAFE's heuristics and the statistical test of Callaghan and Müller-Hansen) advise when most relevant records are likely found. A second reviewer screens from a project file and sends back their decisions, which give agreement, Cohen's kappa, PABAK and the conflicts to resolve. Decisions are kept in your browser and export to ASReview, Covidence or Rayyan, or to your Drive with a record for the methods and the PRISMA flow diagram."),
+    h("h3", {}, "AI helpers (optional)"),
+    h("p", {}, "With a key of your own for Claude (Anthropic), OpenAI, Gemini (Google) or OpenRouter, added under Settings, “AI helpers” above the results can answer a question from the abstracts of the first results, citing them by number (each citation is linked to its study, and any that points to no abstract given is marked); take each study's design, country or setting, sample size and population out of its abstract, with the exact words each comes from, checked against the abstract and added as columns to saves and exports; suggest more search terms for a keyword, which are searched only once you switch them on; and say how a study relates to your question. In Screening, with your criteria, each record can show a suggestion, include, exclude or unsure with a one-line reason, next to your own decision. They suggest; you decide: nothing is included or excluded by them, and the order of screening does not change. What a helper needs goes from your browser straight to the service you chose, which bills you for it, and the cost of each run is estimated before it starts. Independent tests found that AI tools miss many relevant studies and make more errors than people when they take data out of studies, so check what they suggest. Search details and the screening record give the service, the model, the dates and the prompts."),
     h("h3", {}, "Combining searches"),
     h("p", {}, "“Remove the duplicates”, under the search box, puts the exports of your other database searches (RIS, PubMed, Web of Science, Scopus CSV) together with this search's results. Records with the same DOI or PubMed ID, and records whose titles are near-identical and whose year and first author, journal or pages agree, are taken as one study; pairs that only look alike are shown to you to decide. The result is one record per study with the databases it was found in, the duplicates removed and why, and each database's count for the PRISMA flow diagram and PRISMA-S items 15 and 16. The files are read in your browser."),
     h("h3", {}, "Registered studies"),
@@ -2136,6 +2209,7 @@ function renderCredit() {
 
 /* ------------------------------------------------------------------ start */
 function start() {
+  aiReturn();                      // back from connecting OpenRouter: the address is put back before it is read
   local.set("email", null);        // asked for until November 2026 for OpenAlex, which no longer uses it
   renderCredit();
   renderMaker();
@@ -2169,7 +2243,13 @@ $("#drive-btn").addEventListener("click", async () => {
   if (!driveConfigured() || driveConnected()) return openSettings();
   try { await connect(); toast("Google Drive connected"); } catch (e) { toast(e.message, 5000); }
 });
-$("#settings-btn").addEventListener("click", openSettings);
+$("#settings-btn").addEventListener("click", () => openSettings());
+$("#ai-close").addEventListener("click", () => $("#ai").close());
+setAiContext({
+  results: () => results, link, settings: () => openSettings("ai"),
+  question: () => `Studies on ${state.groups.map((g) => g.label).join(state.mode === "any" ? " or " : " and ")}`,
+  download: (name, text, type, message) => downloadFile(name, text, type, message),
+});
 if ($("#screen-btn")) $("#screen-btn").addEventListener("click", () => openScreening(screenCtx));
 $("#earlier-close").addEventListener("click", () => $("#earlier").close());
 $("#tools-close").addEventListener("click", () => $("#tools").close());

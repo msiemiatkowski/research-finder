@@ -50,6 +50,11 @@ science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; 
   and each bar filters the results (for example to studies with an author in one country). Their titles come with an automatic
   English translation in [brackets], or a translation into any of the 39 search languages the visitor chooses, and an
   abstract translates with one click, for a first look at what a study is about.
+- **AI helpers, if you want them.** With your own key for Claude, OpenAI, Gemini or OpenRouter: an answer to a
+  question from the first results' abstracts with checked citations, study details (design, country, sample size,
+  population) taken out of the abstracts with the words they come from, more search terms to choose from, a note on
+  how a study matches your question, and screening suggestions against your criteria next to your own decisions.
+  They suggest; you decide. The search itself uses no AI.
 
 ## What is saved
 
@@ -239,6 +244,26 @@ limited to the files the app creates (`drive.file`).
    keeping only the fields Zotero lists for each item type (`/itemTypeFields`); the key stays in sessionStorage unless
    the visitor asks to remember it.
 
+17. **AI helpers (optional, the visitor's own key).** `ai.js` calls Claude (Anthropic Messages API, `anthropic-version:
+   2026-10-21` and the `anthropic-dangerous-direct-browser-access` header; JSON answers through `output_config.format`,
+   reasoning effort through `output_config.effort`, and Anthropic's server-side fallback for the current models),
+   OpenAI (Responses API, `text.format` JSON schema, `store: false`), Gemini (`generateContent` with
+   `responseJsonSchema` and `thinkingLevel`, the key in `x-goog-api-key`) or OpenRouter (chat completions with
+   `response_format`, or its OAuth PKCE sign-in, which gives the visitor a key of their own), straight from the page;
+   all four answer browser requests (CORS). An option a model turns down (the effort, the JSON schema) is dropped and
+   the request sent again; busy services are asked again after a pause. Helpers: an answer from the first results'
+   abstracts with numbered citations, each checked against the abstracts given; study design, country or setting,
+   sample size and population from each abstract with the words they come from, checked (a value whose words are not
+   in the abstract is marked) and added as columns to saves and exports; more English terms for a keyword, offered off
+   (searched, and translated, only when switched on); a note on how one study relates to the question; and, in
+   Screening, include/exclude/unsure with a reason for each record against the reviewer's criteria, shown next to
+   the reviewer's own decision, with the agreement between them (Cohen's kappa) and the suggestions in the exports
+   and screening record. None of them decides anything, and none changes the order of screening. Costs are estimated
+   before a run from OpenRouter's public price list; Search details and the screening record give the service,
+   model, dates, requests, tokens and the prompts. The key is kept in sessionStorage unless the visitor asks to
+   remember it, and never goes into saves, exports or addresses. The pages carry a Content-Security-Policy that lets
+   scripts come only from this site and Google's sign-in, so that a page holding keys runs no other code.
+
 ### Limits
 
 - OpenAlex gives anonymous users a small shared allowance (about 100 requests a day per network, each up to 200
@@ -338,7 +363,7 @@ diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted reference
 folder structure, adding new results to a save), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=42`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=43`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

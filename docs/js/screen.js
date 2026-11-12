@@ -3,9 +3,11 @@
    first: a TF-IDF text model with logistic regression, retrained as decisions accumulate (the idea of ASReview, rebuilt
    here; it ranks, it never decides). Stopping checks advise when to stop; two reviewers screen independently and
    exchange files; decisions go to ASReview, Rayyan or Covidence, or to Google Drive. Projects are kept in this
-   browser (IndexedDB). */
-import { $, h, fill, fmt, plural, norm, fold, local, toast, parseCsv } from "./util.js?v=42";
-import { readExport } from "./combine.js?v=42";
+   browser (IndexedDB). With the visitor's own AI key, each record can show an AI suggestion against the criteria,
+   with a one-line reason, next to the reviewer's decision; it never decides, and it does not change the order. */
+import { $, h, fill, fmt, plural, norm, fold, local, toast, parseCsv } from "./util.js?v=43";
+import { readExport } from "./combine.js?v=43";
+import { aiReady, aiLabel, aiServiceName, suggestScreening, estimate, estimateText, promptChars, PROMPTS } from "./ai.js?v=43";
 
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 const pause = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -409,7 +411,8 @@ function screenView() {
     h("p", { class: "tools-meta" }, [r.authors, r.year, r.venue, r.source].filter(Boolean).join(" · ")),
     h("div", { class: "screen-abstract" }, r.abstract ? marked(r.abstract) : h("em", {}, "No abstract.")),
     r.keywords && r.keywords.length ? h("p", { class: "tools-meta" }, `Keywords: ${r.keywords.join("; ")}`) : null,
-    h("p", { class: "r-links" }, r.doi ? ctx.link(`https://doi.org/${r.doi}`, "DOI") : null, r.url ? [" ", ctx.link(r.url, "Record")] : null))
+    h("p", { class: "r-links" }, r.doi ? ctx.link(`https://doi.org/${r.doi}`, "DOI") : null, r.url ? [" ", ctx.link(r.url, "Record")] : null),
+    aiCard(r))
     : h("div", { class: "screen-card done" }, h("h3", {}, "Every record is screened."), h("p", {}, `${plural(relevant, "record")} included or maybe, ${plural(s.counts.exclude, "record")} excluded.`));
   const bar = r ? h("div", { class: "screen-bar" },
     h("div", { class: "screen-main-buttons" },
@@ -435,6 +438,7 @@ function screenView() {
     h("h4", {}, "When to stop"),
     h("ul", { class: "screen-checks" }, checks.map(([ok, text]) => h("li", { class: ok ? "ok" : "" }, ok ? "✓ " : "· ", text))),
     h("p", { class: "note" }, "Heuristics from SAFE (Boetje and van de Schoot 2024) and the test of Callaghan and Müller-Hansen (2020). No guidance makes any of them a rule: the decision to stop is yours, and the rule you used goes into your methods."),
+    aiPanel(),
     h("h4", {}, "Second reviewer"),
     agree ? h("p", {}, `With ${other.reviewer || "the other reviewer"}: ${fmt(agree.n)} records screened by both, ${Math.round(agree.po * 100)}% agreement, Cohen's kappa ${agree.kappa.toFixed(2)} (${kappaWord(agree.kappa)}), PABAK ${agree.pabak.toFixed(2)}; `,
       h("button", { type: "button", class: "link-btn", onclick: conflictsView }, `${plural(agree.conflicts.length, "conflict")} to resolve`), ".") : null,
@@ -456,6 +460,87 @@ function screenView() {
       h("textarea", { rows: 6, class: "screen-reasons-edit", onchange: (e) => { project.reasons = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 9); local.set("screenReasons", project.reasons); saveSoon(project); screenView(); } }, project.reasons.join("\n")),
       h("p", { class: "note" }, "One per line, up to nine; keys 1–9 exclude with them.")));
   fill(body, h("div", { class: "screen-layout" }, h("div", { class: "screen-left" }, card, bar), side));
+  aiEstimate();
+}
+
+/* ------------------------------------------------------------------ AI suggestions */
+let aiRun = null;          // the run in progress: { ctrl, done, of }
+const aiOf = (key) => (project.ai || {})[key];
+const criteriaSet = () => Boolean(String(project.criteria || "").trim());
+/* Records not screened and not yet suggested for, in the order they will be shown. */
+const aiNext = (count) => project.order.filter((k) => !decided()[k] && !aiOf(k)).slice(0, count).map(recordOf).filter(Boolean);
+
+function aiCard(r) {
+  const v = aiOf(r.key);
+  if (v) {
+    return h("div", { class: `ai-suggest ai-${v.s}` }, h("strong", {}, `AI suggests: ${v.s}`), ` — ${v.why} `,
+      h("span", { class: "ai-model" }, `(${v.model}; a suggestion, not a decision)`));
+  }
+  if (!aiReady() || !criteriaSet()) return null;
+  return h("p", {}, h("button", { type: "button", class: "btn btn-small", disabled: Boolean(aiRun), onclick: () => runAi([r]) }, "Ask the AI about this record"));
+}
+
+async function runAi(records) {
+  if (aiRun || !records.length) return;
+  const ctrl = new AbortController();
+  aiRun = { ctrl, done: 0, of: records.length };
+  project.aiService = aiServiceName();
+  project.aiCriteria = project.criteria;
+  screenView();
+  try {
+    await suggestScreening(records, project.criteria, {
+      signal: ctrl.signal,
+      onResult: (k, v) => { (project.ai = project.ai || {})[k] = v; },
+      onProgress: (n, of) => { aiRun.done = n; const p = $("#screen-ai-progress"); if (p) fill(p, spinner(), ` ${fmt(n)} of ${fmt(of)} records…`); },
+    });
+  } catch (e) {
+    if (e.kind !== "stopped") toast(`AI suggestions stopped: ${e.message}`, 6000);
+  } finally {
+    aiRun = null;
+    saveSoon(project);
+    if ($("#screen-card") || $("#screen-body")) screenView();
+  }
+}
+
+/* The AI's suggestions as decisions, for the agreement with the reviewer's ("unsure" counts as maybe). */
+function aiDecisions() {
+  const out = {};
+  for (const [k, v] of Object.entries(project.ai || {})) out[k] = { d: v.s === "unsure" ? "maybe" : v.s };
+  return out;
+}
+
+function aiPanel() {
+  const criteria = h("textarea", { rows: 4, id: "screen-criteria", class: "screen-reasons-edit", placeholder: "Include: …\nExclude: …",
+    onchange: (e) => { project.criteria = e.target.value; saveSoon(project); screenView(); } });
+  criteria.value = project.criteria || "";
+  const n = Object.keys(project.ai || {}).length;
+  const agree = n ? agreement(project.decisions, aiDecisions()) : null;
+  const left = aiNext(1).length;
+  return [
+    h("h4", {}, "Criteria and AI suggestions"),
+    h("label", { for: "screen-criteria", class: "tools-label" }, "Your criteria"), criteria,
+    h("p", { class: "note" }, "They go with the project file to a second reviewer, and to the AI if you use it."),
+    !aiReady() ? h("p", { class: "note" }, "Optional: with a key of your own for an AI service, each record can show a suggestion with a one-line reason next to your decision. ",
+      h("button", { type: "button", class: "link-btn", onclick: () => ctx.settings() }, "Set up in Settings"), ".")
+      : !criteriaSet() ? h("p", { class: "note" }, "Write your criteria to get AI suggestions.")
+        : [aiRun ? h("p", { class: "note pending", id: "screen-ai-progress" }, spinner(), ` ${fmt(aiRun.done)} of ${fmt(aiRun.of)} records…`) : null,
+          h("div", { class: "tools-actions" }, aiRun ? h("button", { type: "button", class: "btn btn-small", onclick: () => aiRun.ctrl.abort() }, "Stop")
+            : [10, 50].map((c) => h("button", { type: "button", class: "btn btn-small", disabled: !left, onclick: () => runAi(aiNext(c)) }, `Suggest for the next ${c}`))),
+          h("p", { class: "note", id: "screen-ai-estimate" }),
+          h("p", { class: "note" }, `${aiLabel()} reads each record's title, abstract and keywords with your criteria and suggests include, exclude or unsure, with a reason. The suggestion shows next to the record; the decision is yours, and the order does not change.`)],
+    n ? h("p", { class: "note" }, `${plural(n, "record")} with an AI suggestion.`,
+      agree ? ` On the ${fmt(agree.n)} you have screened too, it agreed with you on ${Math.round(agree.po * 100)}% (Cohen's kappa ${agree.kappa.toFixed(2)}, counting “unsure” as maybe).` : "") : null,
+  ];
+}
+
+/* What the next 50 suggestions would roughly cost. */
+async function aiEstimate() {
+  const box = $("#screen-ai-estimate");
+  if (!box || aiRun) return;
+  const next = aiNext(50);
+  if (!next.length) { fill(box, "Every record left has a suggestion."); return; }
+  const e = await estimate("screen", promptChars(next) + Math.ceil(next.length / 10) * String(project.criteria || "").length, next.length, Math.ceil(next.length / 10));
+  if (box.isConnected) fill(box, `For the next ${fmt(next.length)}: ${estimateText(e)}`);
 }
 
 /* ------------------------------------------------------------------ two reviewers */
@@ -504,14 +589,16 @@ function conflictsView() {
 
 /* ------------------------------------------------------------------ exports and Drive */
 const finalOf = (k) => project.final[k] || (project.decisions[k] || {}).d || "";
-const HEAD = ["Key", "Title", "Authors", "Year", "Journal or source", "DOI", "Link", "Abstract", "Decision", "Reason", "Note", "Reviewer", "Order screened", "Other reviewer", "Final decision"];
+const HEAD = ["Key", "Title", "Authors", "Year", "Journal or source", "DOI", "Link", "Abstract", "Decision", "Reason", "Note", "Reviewer", "Order screened", "Other reviewer", "Final decision",
+  "AI suggestion", "AI reason", "AI model"];
 function rows() {
   const order = new Map(project.log.map((x, i) => [x.key, i + 1]));
   const other = project.others && project.others.length ? project.others[project.others.length - 1] : null;
   return project.records.map((r) => {
     const d = project.decisions[r.key] || {};
     return [r.key, r.title, r.authors, r.year, r.venue, r.doi ? `https://doi.org/${r.doi}` : "", r.url, r.abstract, d.d || "", d.reason || "", d.note || "",
-      d.d ? project.reviewer || local.get("reviewer", "") : "", order.get(r.key) || "", other && other.decisions[r.key] ? `${other.reviewer}: ${other.decisions[r.key].d}` : "", finalOf(r.key)];
+      d.d ? project.reviewer || local.get("reviewer", "") : "", order.get(r.key) || "", other && other.decisions[r.key] ? `${other.reviewer}: ${other.decisions[r.key].d}` : "", finalOf(r.key),
+      (aiOf(r.key) || {}).s || "", (aiOf(r.key) || {}).why || "", (aiOf(r.key) || {}).model || ""];
   });
 }
 const csvCell = (v) => { const s = String(v == null ? "" : v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -544,9 +631,23 @@ function screeningHtml() {
 <h2>Stopping</h2>
 <p>At this point: ${fmt(s.screened)} of ${fmt(s.n)} records screened (${Math.round((100 * s.screened) / Math.max(1, s.n))}%); the last ${fmt(s.streak)} screened were irrelevant${s.knownIn ? `; ${fmt(s.knownFound)} of the ${fmt(s.knownIn)} known relevant studies in the set were included` : ""}; ${s.p == null ? "the statistical stopping test could not be computed yet" : `the statistical stopping test (Callaghan and Müller-Hansen 2020; 95% recall target) gave p = ${s.p < 0.001 ? "<0.001" : s.p.toFixed(3)}`}. [State the stopping rule you used and why.]</p>
 ${agree ? `<h2>Second reviewer</h2><p>${esc(other.reviewer || "A second reviewer")} screened independently (decisions imported from ${esc(other.file)} on ${esc(dayText(other.at))}). On the ${fmt(agree.n)} records both screened (included or maybe against excluded): agreement ${Math.round(agree.po * 100)}%, Cohen's kappa ${agree.kappa.toFixed(2)}, prevalence- and bias-adjusted kappa (PABAK) ${agree.pabak.toFixed(2)}; ${fmt(agree.conflicts.length)} conflicts, ${fmt(resolved)} resolved (column “Final decision”).</p>` : ""}
+${aiHtml(esc)}
 <h2>For the PRISMA 2020 flow diagram</h2>
 <p>Records screened (n = ${fmt(s.screened)}); records excluded (n = ${fmt(s.counts.exclude)})${s.n > s.screened ? `; records not screened after the stopping rule (n = ${fmt(s.n - s.screened)}), which reviews often report as excluded by an automation tool [say how you report them]` : ""}. PRISMA 2020 item 8 asks how many reviewers screened each record, whether independently, and which automation tools were used.</p>
 </body></html>`;
+}
+/* The AI suggestions, for the screening record: which model, how many, how they agreed with the reviewer, the prompt. */
+function aiHtml(esc) {
+  const list = Object.values(project.ai || {});
+  if (!list.length) return "";
+  const days = list.map((v) => String(v.at).slice(0, 10)).sort();
+  const models = [...new Set(list.map((v) => v.model))];
+  const counts = list.reduce((o, v) => ({ ...o, [v.s]: (o[v.s] || 0) + 1 }), {});
+  const agree = agreement(project.decisions, aiDecisions());
+  return `<h2>AI suggestions</h2>
+<p>An AI model (${project.aiService ? `${esc(project.aiService)}, ` : ""}${models.length > 1 ? "models" : "model"} ${esc(models.join(", "))}) suggested include, exclude or unsure, with a one-line reason, for ${fmt(list.length)} records (${fmt(counts.include || 0)} include, ${fmt(counts.exclude || 0)} exclude, ${fmt(counts.unsure || 0)} unsure), from ${esc(dayText(days[0]))}${days[0] !== days[days.length - 1] ? ` to ${esc(dayText(days[days.length - 1]))}` : ""}, using the titles, abstracts and keywords with the criteria below. Each suggestion was shown to the reviewer next to the record; every decision was the reviewer's, and the suggestions did not change the order of screening.${agree ? ` On the ${fmt(agree.n)} records that both covered, the suggestions agreed with the reviewer's decisions on ${Math.round(agree.po * 100)}% (Cohen's kappa ${agree.kappa.toFixed(2)}; “unsure” counted as maybe).` : ""} [Say how the suggestions were used, and report the AI use as your reporting guideline asks.]</p>
+<p><b>Criteria given to the model:</b> ${esc(project.aiCriteria || project.criteria || "")}</p>
+<p><b>Instructions given to the model:</b> ${esc(PROMPTS.screen)}</p>`;
 }
 async function saveDrive(button) {
   const box = $("#screen-save");

@@ -3,9 +3,9 @@
    and the PRISMA 2020 flow diagram. Every OpenAlex request here is a list
    by identifier (1 credit) unless it says otherwise; a check of what the search finds costs a search (10 credits) per
    part of the query. */
-import { $, h, fill, fmt, plural, norm, local, NO_SPACES } from "./util.js?v=42";
-import { SOURCES, KIND_NAMES, worksByIds, citingWorks } from "./sources.js?v=42";
-import { openCite } from "./cite.js?v=42";
+import { $, h, fill, fmt, plural, norm, local, NO_SPACES } from "./util.js?v=43";
+import { SOURCES, KIND_NAMES, worksByIds, citingWorks } from "./sources.js?v=43";
+import { openCite } from "./cite.js?v=43";
 
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 const today = () => new Date().toISOString().slice(0, 10);

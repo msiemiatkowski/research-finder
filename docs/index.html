@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https:; frame-src https://accounts.google.com/gsi/; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>Research Finder: a literature search in 40 languages for reviews and meta-analyses</title>
   <meta name="description" content="A free literature search for systematic reviews, meta-analyses and literature reviews. It searches every wording researchers use for your topic, in 40 languages, in 270 million studies and five data repositories, and files the records, open PDFs, data and a record of the search in your Google Drive.">
   <meta property="og:type" content="website">
@@ -13,9 +14,9 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=42">
-  <script type="module" src="js/main.js?v=42"></script>
-  <script type="module" src="js/landing.js?v=42"></script>
+  <link rel="stylesheet" href="style.css?v=43">
+  <script type="module" src="js/main.js?v=43"></script>
+  <script type="module" src="js/landing.js?v=43"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -432,6 +433,10 @@ ER  - </code></pre>
             <p>Yes: “Screen” above the results, or “Screening” at the top of the page. Records come one at a time: include, maybe or exclude (with one of nine reasons you can rename), with notes and undo, by keyboard (I, M, E, 1–9, U) or buttons. After your first include and exclude, a text model ranks the rest so that the records most like your included ones come first, retrained as you go: the idea of ASReview, rebuilt in the page, which ranks the records and never decides. A panel shows the SAFE heuristics and a statistical stopping test (95% recall), as advice. A second reviewer can screen the same records on their own computer from a project file and send their decisions back; you get agreement, Cohen’s kappa and the conflicts to resolve. Decisions stay in your browser and can be exported for ASReview (with its labels), Covidence or Rayyan, or saved to your Drive with a screening record for your methods.</p>
           </details>
           <details>
+            <summary>Can AI help, and what does it send where?</summary>
+            <p>If you want it to, with a key of your own for Claude (Anthropic), OpenAI, Gemini (Google) or OpenRouter, which you add under Settings and pay that service for. “AI helpers” above the results can answer a question from the abstracts of the first results, citing them by number; take each study’s design, country or setting, sample size and population out of its abstract, with the exact words each comes from, which Research Finder checks against the abstract; suggest more search terms for a keyword, which you switch on yourself; and say how a study relates to your question. In Screening, each record can show a suggestion against your criteria, with a one-line reason, next to your own decision. They suggest; you decide: nothing is included or excluded by them. In independent tests an AI research assistant found about 40% of the studies that reviewers’ own searches found (<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC12483133/">Lau and Golder 2025</a>), and AI data extraction disagreed with the reviewers several times as often as two people did (<a href="https://www.cambridge.org/core/product/identifier/S1759287926100805/type/journal_article">Lagisz and colleagues 2026</a>), which is why the search here makes no use of AI and every AI answer is labelled with its model. The titles, abstracts and keywords involved, and your question or criteria, go from your browser straight to the service you chose; the key stays in the browser tab unless you ask to remember it, and it is never saved to your Drive or put in an export. Search details and the screening record give the service, the model, the dates and the prompts.</p>
+          </details>
+          <details>
             <summary>Can it combine my other database searches and remove the duplicates?</summary>
             <p>Yes: “Searched several databases? Remove the duplicates”, under the search box, or Review tools › Combine. Drop in the exports of your other searches: RIS from Scopus, Web of Science, PsycINFO (EBSCO), Embase (Ovid) or any reference manager, PubMed’s .nbib or MEDLINE text, Web of Science’s plain text or tab-delimited files, Scopus’s CSV, or any CSV with a Title column. Research Finder puts them together with this search’s results and removes the duplicates: the same DOI or PubMed ID, or a near-identical title whose year and first author, journal or pages agree. Pairs that only look alike are shown to you to decide. You get one record per study with the databases it was found in, a list of the duplicates removed and why, each database’s count, and a PRISMA flow diagram with them filled in, as files or saved to your Drive with a Search details for PRISMA-S items 15 and 16. The files are read in your browser and sent nowhere.</p>
           </details>
@@ -553,6 +558,16 @@ ER  - </code></pre>
         <button type="button" class="btn btn-ghost" id="tools-close">Close</button>
       </div>
       <div id="tools-body"></div>
+    </div>
+  </dialog>
+
+  <dialog id="ai" aria-labelledby="ai-title">
+    <div class="dialog-inner">
+      <div class="panel-head">
+        <h2 id="ai-title">AI helpers</h2>
+        <button type="button" class="btn btn-ghost" id="ai-close">Close</button>
+      </div>
+      <div id="ai-body"></div>
     </div>
   </dialog>
 

@@ -1,8 +1,8 @@
 /* Sending records to the visitor's own Zotero library through the Zotero web API, with a key the visitor creates in
    their Zotero account: a new collection named after the search, the records in it, 50 to a request. The key is kept
    for this visit only (sessionStorage) unless the visitor asks to remember it in this browser. */
-import { $, h, fill, fmt, plural, local, toast } from "./util.js?v=42";
-import { splitName } from "./cite.js?v=42";
+import { $, h, fill, fmt, plural, local, toast } from "./util.js?v=43";
+import { splitName } from "./cite.js?v=43";
 
 const API = "https://api.zotero.org";
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
