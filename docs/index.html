@@ -13,9 +13,9 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=37">
-  <script type="module" src="js/main.js?v=37"></script>
-  <script type="module" src="js/landing.js?v=37"></script>
+  <link rel="stylesheet" href="style.css?v=38">
+  <script type="module" src="js/main.js?v=38"></script>
+  <script type="module" src="js/landing.js?v=38"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -145,8 +145,9 @@
               <li><h4>A search string built from the literature</h4><p>For each keyword it reads the 200 best-matching studies and collects the other wordings they use. You keep or drop every term.</p></li>
               <li><h4>Past the language bias</h4><p>Every term is searched in 39 more languages. Each translation is checked by translating it back, and you see all of them.</p></li>
               <li><h4>Grey literature, against publication bias</h4><p>Preprints, theses, reports, study registrations and datasets are searched next to journal articles.</p></li>
-              <li><h4>Records ready for screening</h4><p>Every record with its abstract, each study once: a Google Sheet for your team and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote, or BibTeX and CSL-JSON.</p></li>
-              <li><h4>Retractions, designs and replications marked</h4><p>Retracted, withdrawn and corrected studies are flagged from Crossref and Retraction Watch, trials, observational studies and reviews carry OpenAlex’s design tags, and studies with replication attempts list them.</p></li>
+              <li><h4>Trial registries</h4><p>The same keywords search ClinicalTrials.gov: each registered study with its status, phase, participants, and whether results are posted, so that completed studies never published can be found.</p></li>
+              <li><h4>Records ready for screening</h4><p>Every record with its abstract, each study once: a Google Sheet for your team and a RIS file for Rayyan, Covidence, ASReview, Zotero or EndNote, or BibTeX and CSL-JSON. With a key of your own, the results go straight into your Zotero library.</p></li>
+              <li><h4>Retractions, designs and replications marked</h4><p>Retracted, withdrawn and corrected studies are flagged from Crossref and Retraction Watch, and so are studies on the websites of hijacked journals; trials, observational studies and reviews carry OpenAlex’s design tags, studies with replication attempts list them, and journals in DOAJ are marked.</p></li>
               <li><h4>Full texts and data for coding</h4><p>A link to every open PDF, the files themselves where they can be fetched, and open datasets for effect sizes a paper does not report.</p></li>
               <li><h4>The search, checked</h4><p>Paste studies the search should find and see which it misses, and why: its relative recall. Search the citations of your included studies, backward and forward, find studies like them, and find the studies your results cite that the search does not.</p></li>
               <li><h4>The search, kept up to date</h4><p>Run a saved search again with the same queries, and only the new records are added to its folder, with a list of the studies saved before that have since been retracted. A calendar reminder brings you back every month.</p></li>
@@ -238,6 +239,7 @@
               <li><h4>A first look in English</h4><p>Their titles come with an automatic English translation in [brackets], and an abstract translates with one click. Machine translations, not professional ones: enough to see what a study is about.</p></li>
               <li><h4>Adapted and validated measures</h4><p>The validation study of a questionnaire in another language is often published in that language, in a national journal.</p></li>
               <li><h4>Local evidence</h4><p>Filter by the language of the study to see what has been published in Polish, Portuguese or Korean.</p></li>
+              <li><h4>Who is represented</h4><p>An overview counts all the results by the countries of their authors, the share with an author in the Global South, and their languages, years and journals. Each bar filters the results, for example to the studies with authors in one country.</p></li>
               <li><h4>You stay in control</h4><p>Every translation is shown and can be switched off, one term or one language at a time. Doubtful machine translations are left out unless you add them.</p></li>
             </ul>
           </div>
@@ -413,11 +415,19 @@ ER  - </code></pre>
           </details>
           <details>
             <summary>Does it show retracted studies and replications?</summary>
-            <p>Yes. A study that was retracted, withdrawn, corrected or given an expression of concern is marked, with the date and a link to the notice, from Crossref’s update notices, which include the Retraction Watch database; where Crossref has none, OpenAlex’s own retraction flag is used. Studies that the FORRT Replication Database lists, most of them in psychology, show their replication attempts and outcomes. Both also go into the saved sheet and the RIS file. A study without a mark can still be flawed, and one FORRT does not list may still have been replicated.</p>
+            <p>Yes. A study that was retracted, withdrawn, corrected or given an expression of concern is marked, with the date and a link to the notice, from Crossref’s update notices, which include the Retraction Watch database; where Crossref has none, OpenAlex’s own retraction flag is used. A study whose page is on the website of a hijacked journal, a fake copy of a real one in Retraction Watch’s list, is flagged too, and journals in the Directory of Open Access Journals carry a DOAJ badge. Studies that the FORRT Replication Database lists, most of them in psychology, show their replication attempts and outcomes. Both also go into the saved sheet and the RIS file. A study without a mark can still be flawed, and one FORRT does not list may still have been replicated.</p>
           </details>
           <details>
             <summary>Can it find trials, reviews or observational studies?</summary>
             <p>Yes, with the filter “Study design”. OpenAlex tags seven designs automatically from a study’s title and abstract: randomized controlled trials, clinical trials, observational studies, case reports, systematic reviews, meta-analyses and study protocols. The tags are rarely wrong, but many studies have none, including every study without an abstract, so use the filter to find studies, not to leave any out of a review.</p>
+          </details>
+          <details>
+            <summary>Does it search trial registries?</summary>
+            <p>Yes: the tab “Registered studies” searches ClinicalTrials.gov, more than 600,000 registered trials and observational studies, with the English terms of your keywords. Each registration shows its status, phase, study type, participants, and whether results are posted, with the publications it lists, and filters choose completed studies, studies with posted results or interventional trials. Completed studies without a publication are a check on publication bias. The saved sheet has all of these, and Search details reports the registry search for PRISMA-S. Other registries, such as the WHO portal (ICTRP), are linked under “Search elsewhere”. Studies whose abstracts give their registration number link to it.</p>
+          </details>
+          <details>
+            <summary>Can I see where the studies come from?</summary>
+            <p>Yes: “Overview”, above the results, counts all of them with OpenAlex by the countries of their authors’ institutions, the share with at least one author in the Global South, and by language, year, type, journal and open access. Choose a bar to filter the results by it, for example to screen the studies with authors in one country. These are the authors’ countries, not the countries where the samples were collected, and the counts are OpenAlex’s, for all the results, not only those shown. It costs one OpenAlex search for each part of your search.</p>
           </details>
           <details>
             <summary>Can I open paywalled studies through my library?</summary>
@@ -425,7 +435,7 @@ ER  - </code></pre>
           </details>
           <details>
             <summary>Can I cite the results, or put them in Zotero?</summary>
-            <p>Yes. “Cite” under a study gives its reference in APA, MLA, Chicago, Harvard, Vancouver or any other of more than 2,700 citation styles, formatted from the data registered with its DOI. Export gives the results shown as RIS, BibTeX or CSL-JSON, or as a reference list in one style. The page also marks each study in the COinS format, which the Zotero Connector reads, so its button in your browser can save the studies shown.</p>
+            <p>Yes. “Cite” under a study gives its reference in APA, MLA, Chicago, Harvard, Vancouver or any other of more than 2,700 citation styles, formatted from the data registered with its DOI. Export gives the results shown as RIS, BibTeX or CSL-JSON, or as a reference list in one style, and “Send to Zotero” puts them into a new collection in your Zotero library, with a key you create in your Zotero account. The page also marks each study in the COinS format, which the Zotero Connector reads, so its button in your browser can save the studies shown.</p>
           </details>
           <details>
             <summary>Can I run a saved search again later?</summary>

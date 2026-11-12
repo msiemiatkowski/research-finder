@@ -563,6 +563,12 @@ body:not(.searching) #about:not([hidden]) + .landing { padding-top: 0; }
 .badge.flag-concern { background: var(--warm-soft); color: var(--warm-ink); box-shadow: inset 0 0 0 1px var(--warm); }
 .badge.flag-minor { background: transparent; color: var(--text-2); box-shadow: inset 0 0 0 1px var(--border-strong); }
 .badge.design { background: var(--surface-3); color: var(--text); }
+a.badge.doaj { text-decoration: none; background: transparent; color: var(--text-2); box-shadow: inset 0 0 0 1px var(--border-strong); }
+a.badge.doaj:hover { color: var(--accent-strong); box-shadow: inset 0 0 0 1px var(--accent); }
+.badge.status { background: var(--surface-3); color: var(--text); }
+.badge.st-completed { background: transparent; color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); }
+.badge.st-recruiting, .badge.st-not_yet_recruiting, .badge.st-enrolling_by_invitation, .badge.st-active_not_recruiting { background: var(--accent-soft); color: var(--accent-strong); }
+.badge.st-terminated, .badge.st-withdrawn, .badge.st-suspended { background: var(--danger-soft); color: var(--danger-text); }
 .r-checks { margin: 8px 0 2px; }
 .r-checks:empty { display: none; }
 .r-update { margin: 0 0 6px; padding: 6px 10px; border-left: 3px solid var(--border-strong); font-size: 14.5px; line-height: 1.45; color: var(--text); }
@@ -647,6 +653,27 @@ dialog::backdrop { background: rgb(10 12 10 / 55%); }
 .r-links .link-btn { font-weight: 650; }
 .r-links .mine[aria-pressed="true"] { color: var(--warm-ink); text-decoration: none; }
 .dialog-inner label + input[type="url"] { margin-top: 2px; }
+/* overview */
+.ov-bars { list-style: none; margin: 8px 0 0; padding: 0; }
+.ov-bars li > button, .ov-bars li > div { display: grid; grid-template-columns: minmax(7em, 13em) minmax(40px, 1fr) auto; gap: 10px; align-items: center;
+  width: 100%; padding: 4px 6px; background: none; border: 0; border-radius: 6px; text-align: left; font: inherit; color: inherit; }
+.ov-bars li > button { cursor: pointer; }
+.ov-bars li > button:hover { background: var(--surface-2); }
+.ov-label { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-bar { height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
+.ov-bar i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+.ov-n { font: 500 12.5px var(--mono); color: var(--muted); white-space: nowrap; }
+.ov-years { display: flex; align-items: flex-end; gap: 2px; height: 110px; margin-top: 8px; border-bottom: 1px solid var(--border-strong); }
+.ov-year { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; padding: 0; border: 0; background: none; cursor: pointer; }
+.ov-year i { display: block; width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; }
+.ov-year:hover i, .ov-year:focus-visible i { background: var(--accent-strong); }
+.ov-axis { display: flex; justify-content: space-between; margin: 4px 0 0; font: 500 12px var(--mono); color: var(--muted); }
+@media (max-width: 560px) {
+  .ov-bars li > button, .ov-bars li > div { grid-template-columns: 1fr auto; row-gap: 4px; }
+  .ov-bar { grid-column: 1 / -1; grid-row: 2; }
+}
+#zotero-collection { width: 100%; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); margin-top: 6px; font: inherit; }
+.relay-row input[type="password"] { flex: 1; min-width: 0; margin-top: 0 !important; }
 .relay-row { display: flex; align-items: center; gap: 8px; }
 .relay-row input { flex: 1; min-width: 0; margin-top: 0 !important; }
 .relay-guide { margin-top: 10px; font-size: 14px; }

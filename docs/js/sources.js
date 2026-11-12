@@ -3,10 +3,10 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=37";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=37";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=38";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=38";
 
-export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other" };
+export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other", r: "Registered study" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
 /* English terms first, then the translations: the first term in every language, then the second, and so on, the
    languages with the most research first. */
@@ -123,6 +123,8 @@ function fromOpenAlex(w) {
     retracted: Boolean(w.is_retracted), designs: (w.study_designs || []).map((d) => String(d.id || "").split("/").pop()).filter(Boolean),
     oa: oaId(w.id), refs: (w.referenced_works || []).map(oaId), pmid: oaId(((w.ids || {}).pmid) || ""),
     related: (w.related_works || []).map(oaId),
+    site: loc.landing_page_url || "", doaj: Boolean(src.is_in_doaj),
+    countries: [...new Set((w.authorships || []).flatMap((a) => a.countries || []))],
     // for references and library links: the journal's ISSN, the volume, issue and pages, the publisher
     issn: src.issn_l || (src.issn || [])[0] || "", volume: (w.biblio || {}).volume || "", issue: (w.biblio || {}).issue || "",
     fpage: (w.biblio || {}).first_page || "", lpage: (w.biblio || {}).last_page || "", publisher: src.host_organization_name || "",
@@ -141,6 +143,8 @@ function openalexQuery({ filters, sort }, search) {
   if (filters.from || filters.to) f.push(`publication_year:${filters.from || ""}-${filters.to || ""}`);
   if (filters.open) f.push("open_access.is_oa:true");
   if (filters.langs.length) f.push(`language:${filters.langs.join("|")}`);
+  if ((filters.countries || []).length) f.push(`authorships.countries:${filters.countries.join("|")}`);
+  if (filters.south) f.push("authorships.institutions.is_global_south:true");
   if (f.length) p.set("filter", f.join(","));
   if (sort === "new") p.set("sort", "publication_date:desc");
   else if (sort === "cited") p.set("sort", "cited_by_count:desc");
@@ -177,8 +181,9 @@ export const studies = {
   id: "studies",
   name: "Studies",
   note: "OpenAlex: 270 million works from every field",
+  tab: "OpenAlex", noun: ["study", "studies"],
   sorts: [["rel", "Best match"], ["new", "Newest first"], ["cited", "Most cited"]],
-  filters: ["fulltext", "kinds", "designs", "years", "open", "langs"],
+  filters: ["fulltext", "kinds", "designs", "years", "open", "langs", "authors"],
   kinds: ["a", "p", "v", "b", "d", "t"],
   queries: (q) => booleanParts(q.groups, q.mode, 1450, maxParts()),        // OpenAlex takes up to 1,500 characters
   async search(q, page, size = 25) {
@@ -274,6 +279,34 @@ export const studies = {
       }
     }
     return found;
+  },
+  /* Who and what the results are: every result counted by year, type, language, the countries of its authors, whether
+     an author is at an institution in the Global South, its journal and open access, in one request per part of the
+     search (a search: 10 credits each). The parts' counts are added up, so a study two parts find counts twice. */
+  async overview(q) {
+    const dims = ["publication_year", "type", "language", "authorships.countries", "authorships.institutions.is_global_south",
+      "primary_location.source.id", "open_access.is_oa"];
+    const sums = Object.fromEntries(dims.map((d) => [d, new Map()]));
+    let count = 0;
+    for (const search of studies.queries(q).parts) {
+      const p = openalexQuery(q, search);
+      p.delete("select");
+      p.delete("sort");
+      p.set("group_bys", dims.join(","));
+      p.set("per-page", "200");
+      const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 60000 });
+      count += j.meta.count;
+      for (const g of j.group_bys || []) {
+        const m = sums[g.group_by_key];
+        if (!m) continue;
+        for (const x of g.groups || []) {
+          const key = String(x.key).split("/").pop();
+          const e = m.get(key) || m.set(key, { key, name: x.key_display_name || key, n: 0 }).get(key);
+          e.n += x.count;
+        }
+      }
+    }
+    return { count, dims: Object.fromEntries(dims.map((d) => [d, [...sums[d].values()].sort((a, b) => b.n - a.n)])) };
   },
   /* The references of the best-matching results: up to 200 from each part of the search (one search each). */
   async references(q) {
@@ -517,6 +550,7 @@ export const datasets = {
   id: "data",
   name: "Datasets",
   note: "DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE",
+  tab: "DataCite · Zenodo · Dataverse · OSF · OpenAIRE", noun: ["dataset", "datasets"],
   sorts: [["rel", "Best match"], ["new", "Newest first"]],
   filters: ["years", "repos"],
   /* size: results asked of each repository */
@@ -559,7 +593,130 @@ export const datasets = {
   },
 };
 
-export const SOURCES = { studies, data: datasets };
+/* ------------------------------------------------------------------ ClinicalTrials.gov: registered studies */
+/* The registry's API (version 2) takes the English terms as one Boolean query and searches every field of the
+   registrations. It publishes no rate limit, so requests start about a second apart. */
+const CT_FIELDS = "NCTId,BriefTitle,OfficialTitle,Acronym,OverallStatus,StartDate,PrimaryCompletionDate,CompletionDate,StudyType,Phase,"
+  + "EnrollmentCount,LeadSponsorName,Condition,InterventionName,BriefSummary,HasResults,LocationCountry,ReferencePMID,ReferenceType,"
+  + "StudyFirstPostDate,SecondaryId";
+export const CT_STATUS = { completed: ["COMPLETED"], recruiting: ["RECRUITING", "NOT_YET_RECRUITING", "ENROLLING_BY_INVITATION"],
+  active: ["ACTIVE_NOT_RECRUITING"], stopped: ["TERMINATED", "SUSPENDED", "WITHDRAWN"], unknown: ["UNKNOWN"] };
+export const CT_STATUS_NAMES = { completed: "Completed", recruiting: "Recruiting, or about to", active: "Active, not recruiting",
+  stopped: "Stopped early or withdrawn", unknown: "Status unknown" };
+export const STATUS_LABEL = { COMPLETED: "Completed", RECRUITING: "Recruiting", NOT_YET_RECRUITING: "Not yet recruiting",
+  ENROLLING_BY_INVITATION: "Enrolling by invitation", ACTIVE_NOT_RECRUITING: "Active, not recruiting", TERMINATED: "Terminated",
+  SUSPENDED: "Suspended", WITHDRAWN: "Withdrawn", UNKNOWN: "Status unknown", AVAILABLE: "Available", NO_LONGER_AVAILABLE: "No longer available",
+  TEMPORARILY_NOT_AVAILABLE: "Temporarily not available", APPROVED_FOR_MARKETING: "Approved for marketing", WITHHELD: "Withheld" };
+export const CT_TYPES = { INTERVENTIONAL: "Interventional (clinical trials)", OBSERVATIONAL: "Observational", EXPANDED_ACCESS: "Expanded access" };
+const PHASES = { EARLY_PHASE1: "Early phase 1", PHASE1: "Phase 1", PHASE2: "Phase 2", PHASE3: "Phase 3", PHASE4: "Phase 4" };
+export const phaseText = (r) => (r.phases || []).map((x) => PHASES[x]).filter(Boolean).join("/");
+
+function fromTrial(s) {
+  const p = s.protocolSection || {}, id = p.identificationModule || {}, st = p.statusModule || {}, d = p.designModule || {};
+  const summary = String((p.descriptionModule || {}).briefSummary || "").replace(/\s+/g, " ").trim();
+  const conditions = (p.conditionsModule || {}).conditions || [];
+  const interventions = [...new Set(((p.armsInterventionsModule || {}).interventions || []).map((x) => x.name).filter(Boolean))];
+  const sponsor = ((p.sponsorCollaboratorsModule || {}).leadSponsor || {}).name || "";
+  const start = (st.startDateStruct || {}).date || "";
+  const nct = id.nctId || "";
+  return {
+    key: `nct:${nct}`, source: "ClinicalTrials.gov", kind: "r", type: "registration", nct,
+    year: parseInt(start, 10) || 0, date: start, title: id.briefTitle || id.officialTitle || nct, officialTitle: id.officialTitle || "",
+    authors: sponsor, people: [], org: sponsor, sponsor, venue: `ClinicalTrials.gov, ${nct}`, doi: "",
+    url: `https://clinicaltrials.gov/study/${nct}`, pdf: "", lang: "en",
+    keywords: [...conditions, ...interventions].slice(0, 10), conditions, interventions, abstract: snippet(summary, 400), full: summary,
+    open: true, cited: 0, status: st.overallStatus || "", phases: d.phases || [], studyType: d.studyType || "",
+    enrollment: (d.enrollmentInfo || {}).count || null, results: Boolean(s.hasResults),
+    completion: (st.completionDateStruct || {}).date || (st.primaryCompletionDateStruct || {}).date || "",
+    posted: (st.studyFirstPostDateStruct || {}).date || "",
+    countries: [...new Set(((p.contactsLocationsModule || {}).locations || []).map((l) => l.country).filter(Boolean))],
+    pmids: [...new Set(((p.referencesModule || {}).references || []).filter((x) => x.pmid && x.type !== "BACKGROUND").map((x) => x.pmid))],
+    otherIds: ((id.secondaryIdInfos || [])).map((x) => x.id).filter(Boolean),
+  };
+}
+
+function ctParams({ filters: f, sort }, query) {
+  const p = new URLSearchParams();
+  p.set("query.term", query);
+  p.set("fields", CT_FIELDS);
+  p.set("countTotal", "true");
+  const statuses = (f.status || []).flatMap((x) => CT_STATUS[x] || []);
+  if (statuses.length) p.set("filter.overallStatus", statuses.join(","));
+  const advanced = [];
+  if (f.from || f.to) advanced.push(`AREA[StartDate]RANGE[${f.from ? `${f.from}-01-01` : "MIN"},${f.to ? `${f.to}-12-31` : "MAX"}]`);
+  if ((f.ctype || []).length) advanced.push(`(${f.ctype.map((t) => `AREA[StudyType]${t}`).join(" OR ")})`);
+  if (advanced.length) p.set("filter.advanced", advanced.join(" AND "));
+  if (f.results) p.set("aggFilters", "results:with");
+  if (sort === "new") p.set("sort", "StudyFirstPostDate:desc");
+  else if (sort === "start") p.set("sort", "StartDate:desc");
+  return p;
+}
+
+let ctNext = 0;
+async function ctJSON(url) {
+  const at = Math.max(Date.now(), ctNext);
+  ctNext = at + 800;
+  await new Promise((r) => setTimeout(r, at - Date.now()));
+  return getJSON(url, { timeout: 60000 });
+}
+const ctPages = new Map();     // a query -> { total, tokens: the token of each page after the first }
+
+export const trials = {
+  id: "trials",
+  name: "Registered studies",
+  note: "ClinicalTrials.gov: more than 600,000 registered clinical trials and observational studies",
+  tab: "ClinicalTrials.gov", noun: ["registered study", "registered studies"],
+  sorts: [["rel", "Best match"], ["new", "Newest registrations"], ["start", "Latest start"]],
+  filters: ["status", "results", "ctype", "years"],
+  /* English terms only: registrations are written in English. */
+  queries: (q) => booleanParts(q.groups.map((g) => g.filter((t) => !isTranslation(t))).filter((g) => g.length), q.mode, 1800, 1),
+  async search(q, page, size = 25) {
+    const { parts, dropped } = trials.queries(q);
+    if (!parts.length) return { total: 0, items: [], more: false, dropped, notes: [], parts: 0 };
+    const p = ctParams(q, parts[0]);
+    const base = `${p}`;
+    const known = ctPages.get(base) || ctPages.set(base, { total: 0, tokens: [] }).get(base);
+    p.set("pageSize", String(size));
+    if (page > 1) {
+      const token = known.tokens[page];
+      if (!token) return { total: known.total, items: [], more: false, dropped, notes: [], parts: 1 };
+      p.set("pageToken", token);
+    }
+    let j;
+    try {
+      j = await ctJSON(`https://clinicaltrials.gov/api/v2/studies?${p}`);
+    } catch (e) {
+      throw new Error(friendly(e, "ClinicalTrials.gov"));
+    }
+    if (page === 1 || j.totalCount != null) known.total = j.totalCount || 0;
+    known.tokens[page + 1] = j.nextPageToken || "";
+    return { total: known.total, items: (j.studies || []).map(fromTrial), more: Boolean(j.nextPageToken), dropped, notes: [], parts: 1 };
+  },
+  /* For saving: every registration, 1,000 a request. */
+  async *all(q, notes = [], { info = null } = {}) {
+    const { parts } = trials.queries(q);
+    if (!parts.length) return;
+    const p = ctParams(q, parts[0]);
+    p.set("pageSize", "1000");
+    let token = "";
+    for (let round = 0; round < 200; round++) {
+      if (token) p.set("pageToken", token);
+      let j;
+      try {
+        j = await ctJSON(`https://clinicaltrials.gov/api/v2/studies?${p}`);
+      } catch (e) {
+        notes.push(`${friendly(e, "ClinicalTrials.gov").replace(/[^.]$/, "$&.")} The save stopped early.`);
+        return;
+      }
+      if (info && !round) info.total = j.totalCount || 0;
+      yield (j.studies || []).map(fromTrial);
+      token = j.nextPageToken || "";
+      if (!token) return;
+    }
+  },
+};
+
+export const SOURCES = { studies, data: datasets, trials };
 
 /* ------------------------------------------------------------------ files to save */
 /* Open PDFs that Semantic Scholar knows for these DOIs (one request for up to 500). Its open versions are often on

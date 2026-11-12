@@ -1,21 +1,23 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=37";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=37";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=37";
+import { CONFIG } from "../config.js?v=38";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast } from "./util.js?v=38";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup } from "./terms.js?v=38";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay } from "./sources.js?v=37";
+  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText } from "./sources.js?v=38";
 import { translationsOn, languageOf, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle, englishTitles,
-  SAVE_TRANSLATIONS } from "./translate.js?v=37";
+  SAVE_TRANSLATIONS } from "./translate.js?v=38";
 import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave, addToSave, detailsText,
-  RECORD } from "./drive.js?v=37";
+  RECORD } from "./drive.js?v=38";
 import { DESIGN_NAMES, designsOf, designText, checksOn, checkUpdates, updatesOf, updatesText, SERIOUS, loadReplications, replicationsDate,
-  replicationsOf, replicationText, replicationsCell } from "./checks.js?v=37";
-import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount } from "./review.js?v=37";
-import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=37";
+  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate } from "./checks.js?v=38";
+import { openTools, prismaSvg, checkHtml, isMine, toggleMine, mineCount } from "./review.js?v=38";
+import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=38";
+import { openZotero, keyForm } from "./zotero.js?v=38";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
-const PAGE_SIZE = { studies: 25, data: 8 };
-const emptyFilters = () => ({ kinds: [], designs: [], langs: [], from: null, to: null, open: false, repos: [], fulltext: false });
+const PAGE_SIZE = { studies: 25, data: 8, trials: 25 };
+const emptyFilters = () => ({ kinds: [], designs: [], langs: [], from: null, to: null, open: false, repos: [], fulltext: false,
+  countries: [], south: false, status: [], results: false, ctype: [] });
 const state = {
   input: "", groups: [], mode: "all", tab: "studies", sort: "rel",
   langsOff: new Set(local.get("langsOff", [])), filters: emptyFilters(), showAllLangs: false,
@@ -108,7 +110,7 @@ function emptyMessage() {
   const tips = [];
   if (state.groups.length > 1 && state.mode === "all") tips.push("Switch to “any keyword”.");
   const f = state.filters;
-  if (f.kinds.length || f.langs.length || f.from || f.to || f.open || f.repos.length) tips.push("Remove some filters.");
+  if (f.kinds.length || f.langs.length || f.from || f.to || f.open || f.repos.length || f.countries.length || f.south || f.status.length || f.results || f.ctype.length) tips.push("Remove some filters.");
   if (state.tab === "data") tips.push("Datasets are described in English: try English keywords.");
   return [h("strong", {}, "Nothing found. "), tips.join(" ") || "Try other keywords."];
 }
@@ -390,8 +392,15 @@ const UPDATE_NOTE = "From Crossref's update notices, which include the Retractio
 function drawChecks({ r, flags, box }) {
   const { list } = updatesOf(r);
   const tone = (n) => (SERIOUS.includes(n.kind) ? "flag-serious" : n.kind === "expression_of_concern" ? "flag-concern" : "flag-minor");
-  fill(flags, list.map((n) => h("span", { class: `badge flag ${tone(n)}`, title: UPDATE_NOTE }, n.label)));
+  const fake = hijackOf(r);
+  fill(flags, fake ? h("span", { class: "badge flag flag-serious", title: "Its page is on the address of a hijacked journal (Retraction Watch Hijacked Journal Checker)" }, "Hijacked journal") : null,
+    list.map((n) => h("span", { class: `badge flag ${tone(n)}`, title: UPDATE_NOTE }, n.label)));
   const lines = [];
+  if (fake) {
+    lines.push(h("p", { class: "r-update flag-serious" }, h("strong", {}, "Hijacked journal: "),
+      `its page is on ${fake.host}, a fake copy of “${fake.original}” in Retraction Watch's Hijacked Journal Checker. A paper there was not published by the real journal`,
+      fake.originalUrl ? [" (", link(fake.originalUrl, "the real journal"), ")"] : "", "."));
+  }
   if (list.length) {
     lines.push(h("p", { class: `r-update ${tone(list[0])}` }, list.map((n, i) => [i ? " · " : "",
       h("strong", {}, n.label), n.date ? ` on ${dateText(n.date)}` : "",
@@ -416,7 +425,8 @@ function replicationBox(list) {
 async function runChecks(records) {
   if (state.tab !== "studies" || !records.length) return;
   const redraw = () => records.forEach((r) => { const s = slots.get(r.key); if (s) drawChecks(s); });
-  await Promise.allSettled([loadReplications().then(redraw), checksOn() ? checkUpdates(records.map((r) => r.doi)).then(redraw) : null]);
+  await Promise.allSettled([loadReplications().then(redraw), checksOn() ? checkUpdates(records.map((r) => r.doi)).then(redraw) : null,
+    checksOn() ? loadHijacked().then(redraw) : null]);
 }
 
 /* Before an export or a save: every study checked (Crossref and FReD), with progress for a large save. */
@@ -424,6 +434,7 @@ async function checkAll(records, progress) {
   if (state.tab !== "studies") return;
   await loadReplications();
   if (checksOn()) {
+    await loadHijacked();
     await checkUpdates(records.map((r) => r.doi), progress ? (n, of) => progress(`Checking for retractions and corrections: ${fmt(n)} of ${fmt(of)} studies…`) : null);
   }
 }
@@ -441,7 +452,13 @@ function renderRecord(r) {
       designsOf(r).map((d) => h("span", { class: "badge design", title: DESIGN_NOTE }, DESIGN_NAMES[d])),
       r.year ? h("span", {}, r.year) : null,
       lang ? h("span", { class: "badge" }, lang) : null,
-      r.open ? h("span", { class: "badge open", title: "Free to read or download" }, "Open") : null,
+      r.kind === "r" && r.status ? h("span", { class: `badge status st-${r.status.toLowerCase()}`, title: "Status of the study, as registered" }, STATUS_LABEL[r.status] || r.status) : null,
+      r.kind === "r" && phaseText(r) ? h("span", { class: "badge" }, phaseText(r)) : null,
+      r.kind === "r" && r.results ? h("span", { class: "badge open", title: "Results are posted in the registry" }, "Results posted") : null,
+      r.kind === "r" && r.enrollment ? h("span", { title: "Participants, as registered" }, `${fmt(r.enrollment)} participants`) : null,
+      r.open && r.kind !== "r" ? h("span", { class: "badge open", title: "Free to read or download" }, "Open") : null,
+      r.doaj && r.issn ? h("a", { class: "badge doaj", href: `https://doaj.org/toc/${encodeURIComponent(r.issn)}`, target: "_blank", rel: "noopener noreferrer",
+        title: "The journal is in the Directory of Open Access Journals, which lists open-access journals that meet its standards. Click for its fees, licence and peer review." }, "DOAJ") : null,
       r.cited ? h("span", { title: "Times cited" }, `${fmt(r.cited)} citations`) : null,
       r.files && r.files.length ? h("span", { title: "Open data files" }, plural(r.files.length, "file")) : null,
       h("span", { class: "src" }, r.source)),
@@ -460,13 +477,26 @@ function renderRecord(r) {
   }
   const links = [];
   if (r.doi) links.push(link(`https://doi.org/${r.doi}`, r.kind === "d" ? "Dataset page" : "DOI"));
-  if (safeUrl(r.url)) links.push(link(safeUrl(r.url), r.doi ? "Record page" : "Open record"));
+  if (safeUrl(r.url)) links.push(link(safeUrl(r.url), r.kind === "r" ? "Registry record" : r.doi ? "Record page" : "Open record"));
   if (safeUrl(r.pdf)) links.push(link(safeUrl(r.pdf), "Open PDF"));
+  if (r.kind === "r" && r.pmids && r.pmids.length) {
+    links.push(link(`https://pubmed.ncbi.nlm.nih.gov/?term=${r.pmids.slice(0, 50).join("+OR+")}`, `${plural(r.pmids.length, "publication")} in PubMed`, "Publications the registration lists with its results"));
+  }
+  if (studies) for (const t of trialIds(r)) links.push(link(t.href, t.id, "The registration this study gives in its abstract"));
   if (studies) for (const l of libraryLinks(r)) links.push(link(l.href, l.text, l.title));
   links.push(h("button", { type: "button", class: "link-btn", title: "Its reference in APA or another style, or as a file for a reference manager", onclick: () => openCite([r], toolsCtx) }, "Cite"));
   if (studies && r.oa) links.push(mineButton(r));
   li.append(h("div", { class: "r-links" }, links), coins(r));
   return li;
+}
+
+/* Trial registration numbers a study gives in its abstract (ClinicalTrials.gov, ISRCTN), linked to the registry. */
+function trialIds(r) {
+  const text = `${r.full || r.abstract || ""}`;
+  const out = new Map();
+  for (const m of text.matchAll(/\bNCT\s?(\d{8})\b/g)) out.set(`NCT${m[1]}`, `https://clinicaltrials.gov/study/NCT${m[1]}`);
+  for (const m of text.matchAll(/\bISRCTN\s?(\d{8})\b/g)) out.set(`ISRCTN${m[1]}`, `https://www.isrctn.com/ISRCTN${m[1]}`);
+  return [...out].slice(0, 3).map(([id, href]) => ({ id: `Registered as ${id}`, href }));
 }
 
 /* Adds a study to "your studies", the list the review tools start from, or takes it out. */
@@ -488,14 +518,15 @@ function renderToolbar(status) {
   bar.hidden = false;
   const src = SOURCES[state.tab];
   const split = extra.parts > 1;
-  const data = state.tab === "data";
+  const data = state.tab === "data", studiesTab = state.tab === "studies", trialsTab = state.tab === "trials";
   const under = status ? null
     : data && extra.totals ? h("small", {}, Object.entries(extra.totals).map(([n, c]) => `${n} ${fmt(c)}`).join(" · "))
-      : split ? h("small", { title: `The terms did not fit in one OpenAlex search (1,500 characters), so Research Finder made ${extra.parts} searches and put their results together. The total counts a study found by two of them twice.` },
-        `from ${extra.parts} searches put together: the terms do not fit in one`) : null;
+      : trialsTab ? h("small", {}, "English terms only: registrations are written in English")
+        : split ? h("small", { title: `The terms did not fit in one OpenAlex search (1,500 characters), so Research Finder made ${extra.parts} searches and put their results together. The total counts a study found by two of them twice.` },
+          `from ${extra.parts} searches put together: the terms do not fit in one`) : null;
   fill(bar,
     h("div", { class: "tb-main" },
-      h("p", { class: "count" }, status || `${split ? "About " : ""}${plural(total, data ? "dataset" : "study", data ? "datasets" : "studies")}`, under),
+      h("p", { class: "count" }, status || `${split ? "About " : ""}${plural(total, ...src.noun)}`, under),
       results.length ? h("button", { type: "button", class: "btn btn-primary tb-save", onclick: openSave, title: "Save the results, open PDFs and data files to your Google Drive" }, "Save to Google Drive") : null),
     h("div", { class: "tb-tools" },
       h("select", { "aria-label": "Sort", onchange: (e) => { state.sort = e.target.value; search(0); } },
@@ -508,9 +539,11 @@ function renderToolbar(status) {
         ["BibTeX for LaTeX, Overleaf or JabRef", () => exportRefs("bib")],
         ["CSL-JSON for Zotero, Pandoc or citation processors", () => exportRefs("csl")],
         ["Formatted references, in APA or another style", () => openCite(results, toolsCtx)],
+        ["Send to Zotero (with your own Zotero key)", () => toolsCtx.exportRecords(results, { format: "zotero" })],
         ["PRISMA 2020 flow diagram (SVG), with the numbers of this search", exportPrisma],
       ], "Download the results shown, with their abstracts") : null,
-      results.length && !data ? menu("Review tools ▾", [
+      results.length && studiesTab ? h("button", { type: "button", class: "btn btn-small", onclick: openOverview, title: "Years, types, languages, the authors' countries and journals of all the results" }, "Overview") : null,
+      results.length && studiesTab ? menu("Review tools ▾", [
         ["Check your search against studies it should find", () => openTools("check", toolsCtx)],
         ["Citation search from your studies", () => openTools("chase", toolsCtx)],
         ["More like these: studies similar to yours", () => openTools("similar", toolsCtx)],
@@ -560,23 +593,33 @@ const externalMenu = () => menu("Search elsewhere ▾", [
   ["PubMed (English terms)", `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(searchString(true))}`],
   ["BASE (all terms)", `https://www.base-search.net/Search/Results?lookfor=${encodeURIComponent(searchString(false, 4000))}&type=all`],
   ["OpenAlex (English terms)", `https://openalex.org/works?search=${encodeURIComponent(searchString(true, 900))}`],
+  ["ClinicalTrials.gov (English terms)", `https://clinicaltrials.gov/search?term=${encodeURIComponent(searchString(true, 1800))}`],
+  ["WHO trials registry portal (ICTRP)", "https://trialsearch.who.int/"],
 ]);
 
 /* One row per result, the same columns for every source; while translations are on, a title in another language has
    its English next to it; studies have their design, retraction or corrections, and replications after their type. */
 const EN_TITLE = "Title in English (automatic translation)";
 const COLUMNS = ["No.", "Title", "Abstract", "Authors", "Year", "Type", "Journal or repository", "DOI", "Link", "Open PDF", "Language", "Keywords", "Source", "Citations", "License", "Size"];
-const CHECK_COLUMNS = ["Study design (automatic tag)", "Retraction or correction", "Replications (FReD)"];
-function header(en, checks) {
+const CHECK_COLUMNS = ["Study design (automatic tag)", "Retraction or correction", "Replications (FReD)", "Journal (DOAJ, hijacked journals)"];
+const TRIAL_COLUMNS = ["Status", "Phase", "Study type", "Results posted", "Participants", "Start", "Completion", "Conditions", "Interventions", "Countries", "Publications (PMIDs)", "Other IDs"];
+function header(en, checks, tab = state.tab) {
   const row = [...COLUMNS];
-  if (checks) row.splice(6, 0, ...CHECK_COLUMNS);
+  if (tab === "trials") row.splice(6, 0, ...TRIAL_COLUMNS);
+  else if (checks) row.splice(6, 0, ...CHECK_COLUMNS);
   if (en) row.splice(2, 0, EN_TITLE);
   return row;
 }
-function rowOf(r, i, en, checks) {
+const trialCells = (r) => [STATUS_LABEL[r.status] || r.status || "", phaseText(r), CT_TYPES[r.studyType] || r.studyType || "", r.results ? "yes" : "no",
+  r.enrollment || "", r.date || "", r.completion || "", (r.conditions || []).join("; "), (r.interventions || []).join("; "), (r.countries || []).join("; "),
+  (r.pmids || []).join("; "), (r.otherIds || []).join("; ")];
+/* "Status: Completed; Study type: Interventional; Results posted: yes; Participants: 555; Start: 2007-12" */
+const trialSummary = (r) => TRIAL_COLUMNS.slice(0, 7).map((name, i) => [name, trialCells(r)[i]]).filter(([, v]) => v !== "" && v != null).map(([name, v]) => `${name}: ${v}`).join("; ");
+function rowOf(r, i, en, checks, tab = state.tab) {
   const row = [i + 1, r.title, r.full || r.abstract || "", r.authors, r.year || "", KIND_NAMES[r.kind] || "", r.venue, r.doi ? `https://doi.org/${r.doi}` : "",
     r.url || r.landing || "", r.pdf, r.lang, (r.keywords || []).join("; "), r.source, r.cited || "", r.license || "", r.size || ""];
-  if (checks) row.splice(6, 0, designText(r), updatesText(r), replicationsCell(r));
+  if (tab === "trials") row.splice(6, 0, ...trialCells(r));
+  else if (checks) row.splice(6, 0, designText(r), updatesText(r), replicationsCell(r), journalText(r));
   if (en) row.splice(2, 0, englishTitle(r));
   return row;
 }
@@ -594,6 +637,7 @@ function risOf(records, en = translationsOn(), checks = state.tab === "studies")
     tag("TY", r.kind === "d" ? "DATA" : RIS_TYPES[r.type] || "GEN"),
     tag("TI", r.title),
     ...(r.people || []).map((p) => tag("AU", p)),
+    r.org && !(r.people || []).length ? tag("AU", r.org) : "",
     tag("PY", r.year || ""),
     tag("DA", (r.date || "").slice(0, 10).replace(/-/g, "/")),
     tag(r.kind === "d" ? "PB" : "T2", r.venue),
@@ -609,10 +653,13 @@ function risOf(records, en = translationsOn(), checks = state.tab === "studies")
     tag("UR", r.doi ? `https://doi.org/${r.doi}` : safeUrl(r.url || r.landing)),
     tag("LA", r.lang === "en" ? "English" : LANG_NAMES[r.lang] || r.lang),
     tag("DB", r.source),
+    tag("AN", r.nct),
+    tag("N1", r.kind === "r" ? `Registered study: ${trialSummary(r)}` : ""),
     tag("N1", english(r)),
     tag("N1", note("Retraction or correction (Crossref, Retraction Watch)", updatesText(r))),
     tag("N1", note("Study design, tagged automatically by OpenAlex", designText(r))),
     tag("N1", note("Replications in the FORRT Replication Database (FReD)", replicationsCell(r))),
+    tag("N1", hijackOf(r) ? note("Journal warning", journalText(r)) : ""),
     "ER  - \r\n",
   ].join("")).join("\r\n");
 }
@@ -620,10 +667,14 @@ function risOf(records, en = translationsOn(), checks = state.tab === "studies")
 /* The results as a file for reference managers: RIS, BibTeX or CSL-JSON, with the same notes (an English title, a
    retraction or correction). */
 const REF_FILES = { ris: ["ris", "application/x-research-info-systems"], bib: ["bib", "application/x-bibtex"], csl: ["json", "application/vnd.citationstyles.csl+json"] };
+/* Notes that go with a reference: its English title, a retraction or correction, a hijacked journal, a registration's status. */
+const refNotes = (en, checks) => (r) => [en && englishTitle(r) ? `Title in English, an automatic translation (Wikimedia MinT), not a professional one: ${englishTitle(r)}` : "",
+  checks && updatesText(r) ? `Retraction or correction (Crossref, Retraction Watch): ${updatesText(r)}` : "",
+  checks && hijackOf(r) ? `Journal warning: ${journalText(r)}` : "",
+  r.kind === "r" ? `Registered study (${STATUS_LABEL[r.status] || r.status || "status not given"})` : ""].filter(Boolean);
 function refsText(records, format, en = translationsOn(), checks = state.tab === "studies") {
   if (format === "ris") return risOf(records, en, checks);
-  const notes = (r) => [en && englishTitle(r) ? `Title in English, an automatic translation (Wikimedia MinT), not a professional one: ${englishTitle(r)}` : "",
-    checks && updatesText(r) ? `Retraction or correction (Crossref, Retraction Watch): ${updatesText(r)}` : ""].filter(Boolean);
+  const notes = refNotes(en, checks);
   if (format === "bib") return bibtexOf(records, { notes, language: (r) => (r.lang === "en" ? "English" : LANG_NAMES[r.lang] || r.lang || "") });
   return cslOf(records, { notes });
 }
@@ -660,7 +711,7 @@ async function checksFirst(records) {
 async function exportCsv() {
   await englishFirst(results);
   await checksFirst(results);
-  const en = translationsOn(), checks = state.tab === "studies";
+  const en = translationsOn() && state.tab !== "trials", checks = state.tab === "studies";
   const cell = (v) => { const s = String(v == null ? "" : v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const csv = [header(en, checks), ...results.map((r, i) => rowOf(r, i, en, checks))].map((r) => r.map(cell).join(",")).join("\r\n");
   downloadFile(`research-finder-${fileDate()}.csv`, "﻿" + csv, "text/csv;charset=utf-8");
@@ -677,6 +728,11 @@ const toolsCtx = {
     await englishFirst(records);
     await checksFirst(records);
     const en = translationsOn(), message = `Exported ${state.tab === "data" ? plural(records.length, "dataset") : plural(records.length, "study", "studies")}`;
+    if (format === "zotero") {
+      const what = { "citation-search": "Citation search", "similar-studies": "Similar studies", "your-studies": "Your studies", "cited-by-results": "Cited by the results" }[name];
+      openZotero(records, { name: `${what ? `${what}: ` : ""}${state.input || "Research Finder"} — ${fileDate()}`, notes: refNotes(en, state.tab === "studies") });
+      return;
+    }
     if (REF_FILES[format]) {
       const [ext, type] = REF_FILES[format];
       downloadFile(`${name}-${fileDate()}.${ext}`, refsText(records, format, en, true), type, message);
@@ -704,12 +760,12 @@ const toolsCtx = {
 /* The numbers of the PRISMA 2020 flow diagram that this search gives: the records each source found, the duplicates
    removed within the search when all of them were saved, and the citation search of this visit. Nothing is guessed. */
 function prismaCounts(nRows = null, savedAll = false, gotNotes = []) {
-  const studies = state.tab === "studies";
+  const studies = state.tab === "studies", trials = state.tab === "trials";
   const complete = savedAll && nRows != null && !gotNotes.length;
   return {
     date: new Date().toISOString().slice(0, 10),
-    databases: studies ? [["OpenAlex", total]] : Object.entries(extra.totals || {}),
-    registers: null, duplicates: complete ? Math.max(0, total - nRows) : null, otherRemoved: null, screened: null,
+    databases: studies ? [["OpenAlex", total]] : trials ? [] : Object.entries(extra.totals || {}),
+    registers: trials ? total : null, duplicates: complete ? Math.max(0, total - nRows) : null, otherRemoved: null, screened: null,
     citation: review.chase ? review.chase.records.length : null,
   };
 }
@@ -724,6 +780,104 @@ async function exportRis() {
   downloadFile(`research-finder-${fileDate()}.ris`, risOf(results), "application/x-research-info-systems");
 }
 
+/* ------------------------------------------------------------------ overview */
+/* Who and what all the results are, counted by OpenAlex (one request per part of the search); a bar adds its filter. */
+const regionNames = (() => { try { return new Intl.DisplayNames(["en"], { type: "region" }); } catch { return null; } })();
+function countryName(code) { try { return (regionNames && regionNames.of(code)) || code; } catch { return code; } }
+const TYPE_KIND = { article: "a", preprint: "p", review: "v", book: "b", "book-chapter": "b", dataset: "d", dissertation: "t" };
+const overviews = new Map();        // a search's signature -> its overview
+const OV_SOUTH = "authorships.institutions.is_global_south";
+
+async function openOverview() {
+  const d = $("#tools");
+  fill($("#tools-title"), "Overview of the results");
+  const sig = searchSignature(), parts = SOURCES.studies.queries(query()).parts.length;
+  const out = h("div", { class: "tools-out", role: "status", "aria-live": "polite" });
+  fill($("#tools-body"), out);
+  if (!d.open) d.showModal();
+  let ov = overviews.get(sig);
+  if (!ov) {
+    const key = Boolean(local.get("openalexKey", ""));
+    fill(out, h("p", { class: "note pending" }, spinner(), ` Counting all ${fmt(total)} results with OpenAlex (${plural(parts, "search", "searches")}${key ? "" : "; OpenAlex allows about 100 a day without a key"})…`));
+    try {
+      ov = { ...(await SOURCES.studies.overview(query())), parts, date: new Date().toISOString().slice(0, 10) };
+    } catch (e) {
+      fill(out, h("p", { class: "note warn" }, `The overview could not be made: ${e.message}`));
+      return;
+    }
+    overviews.set(sig, ov);
+    review.overview = { ...ov, signature: sig };
+  }
+  fill(out, overviewView(ov, () => d.close()));
+}
+
+function overviewView(ov, close) {
+  const f = state.filters;
+  const n = Math.max(1, ov.count);
+  const pct = (x) => `${Math.round((100 * x) / n)}%`;
+  const apply = (fn) => () => { fn(); close(); search(0); };
+  const bars = (items, { label = (x) => x.name, onPick = null, max = 12 } = {}) => {
+    const top = items.slice(0, max), most = Math.max(1, ...top.map((x) => x.n));
+    return h("ul", { class: "ov-bars" }, top.map((x) => {
+      const pick = onPick && onPick(x);
+      const row = [h("span", { class: "ov-label" }, label(x)), h("span", { class: "ov-bar" }, h("i", { style: `width:${Math.max(1, (100 * x.n) / most)}%` })),
+        h("span", { class: "ov-n" }, `${fmt(x.n)} · ${pct(x.n)}`)];
+      return h("li", {}, pick ? h("button", { type: "button", title: pick.title, onclick: apply(pick.go) }, row) : h("div", {}, row));
+    }));
+  };
+  const years = ov.dims.publication_year.filter((x) => /^\d{4}$/.test(x.key)).map((x) => ({ ...x, y: Number(x.key) })).sort((a, b) => a.y - b.y);
+  const recent = years.filter((x) => x.y >= Math.max(...years.map((y) => y.y)) - 39);
+  const most = Math.max(1, ...recent.map((x) => x.n));
+  const south = (ov.dims[OV_SOUTH].find((x) => x.key === "true") || { n: 0 }).n;
+  const open = (ov.dims["open_access.is_oa"].find((x) => x.key === "true") || { n: 0 }).n;
+  const csv = () => {
+    const rows = [["Counted", "Key", "Name", "Results"]];
+    for (const [dim, items] of Object.entries(ov.dims)) for (const x of items) rows.push([dim, x.key, x.name, x.n]);
+    downloadFile(`overview-${fileDate()}.csv`, "\ufeff" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n"), "text/csv;charset=utf-8", "Overview downloaded");
+  };
+  return [
+    h("p", { class: "tools-head" }, h("strong", {}, `${fmt(ov.count)} results`), ov.parts > 1 ? ` from ${ov.parts} searches put together (a study two of them find counts twice)` : "",
+      ", counted by OpenAlex. Choose a bar to filter the results by it."),
+    h("div", { class: "tools-actions" }, h("button", { type: "button", class: "btn btn-small", onclick: csv }, "Download (CSV)")),
+    h("h3", {}, "Year"),
+    h("div", { class: "ov-years", role: "list" }, recent.map((x) => h("button", { type: "button", role: "listitem", class: "ov-year", title: `${x.y}: ${fmt(x.n)} results. Choose it to see only that year.`,
+      "aria-label": `${x.y}: ${fmt(x.n)} results`, onclick: apply(() => { f.from = x.y; f.to = x.y; }) }, h("i", { style: `height:${Math.max(2, (100 * x.n) / most)}%` })))),
+    recent.length ? h("p", { class: "ov-axis" }, h("span", {}, recent[0].y), h("span", {}, recent[recent.length - 1].y)) : null,
+    years.length > recent.length ? h("p", { class: "note" }, `And ${fmt(years.filter((x) => x.y < recent[0].y).reduce((a, x) => a + x.n, 0))} results from before ${recent[0].y}.`) : null,
+    h("h3", {}, "Where the authors are"),
+    h("p", {}, h("button", { type: "button", class: "link-btn", onclick: apply(() => { f.south = true; }) }, `${fmt(south)} results (${pct(south)})`),
+      " have at least one author at an institution in the Global South, as OpenAlex marks institutions."),
+    bars(ov.dims["authorships.countries"], { max: 15, onPick: (x) => ({ title: `Only studies with an author in ${x.name}`, go: () => { f.countries = [x.key.toUpperCase()]; } }) }),
+    h("p", { class: "note" }, "A study counts once for each country where one of its authors works, so the numbers add up to more than the results. These are the authors' institutions, not the samples studied, and OpenAlex knows them for most studies, not all."),
+    h("h3", {}, "Language"),
+    bars(ov.dims.language, { max: 10, onPick: (x) => (x.key === "en" || LANGS.includes(x.key) ? { title: `Only studies in ${x.name}`, go: () => { f.langs = [x.key]; } } : null) }),
+    h("p", { class: "note" }, "OpenAlex's own labels, which count some studies in other languages as English."),
+    h("h3", {}, "Type"),
+    bars(ov.dims.type, { max: 10, label: (x) => x.name.replace(/-/g, " "), onPick: (x) => (TYPE_KIND[x.key] ? { title: `Only ${x.name}s`, go: () => { f.kinds = [TYPE_KIND[x.key]]; } } : null) }),
+    h("h3", {}, "Open access"),
+    h("p", {}, h("button", { type: "button", class: "link-btn", onclick: apply(() => { f.open = true; }) }, `${fmt(open)} results (${pct(open)})`), " are free to read."),
+    h("h3", {}, "Journals and repositories"),
+    bars(ov.dims["primary_location.source.id"], { max: 12 }),
+  ];
+}
+
+/* For "Search details": the overview made in this visit. */
+function overviewHtml(ov) {
+  const pct = (x) => `${Math.round((100 * x) / Math.max(1, ov.count))}%`;
+  const top = (dim, k) => ov.dims[dim].slice(0, k).map((x) => `${esc(x.name)} ${fmt(x.n)} (${pct(x.n)})`).join("; ");
+  const south = (ov.dims[OV_SOUTH].find((x) => x.key === "true") || { n: 0 }).n;
+  const open = (ov.dims["open_access.is_oa"].find((x) => x.key === "true") || { n: 0 }).n;
+  const years = ov.dims.publication_year.map((x) => Number(x.key)).filter((y) => y > 1000);
+  return `<h2>Overview of the results</h2>
+<p>Counted by OpenAlex on ${esc(dateText(ov.date))} for all ${fmt(ov.count)} results${ov.parts > 1 ? " (a study found by two of the searches counts twice)" : ""}${years.length ? `, published from ${Math.min(...years)} to ${Math.max(...years)}` : ""}.</p>
+<p><b>Authors' countries</b> (studies with at least one author at an institution there; not the countries of the samples): ${top("authorships.countries", 15)}.</p>
+<p><b>Global South:</b> ${fmt(south)} studies (${pct(south)}) have at least one author at an institution OpenAlex marks as in the Global South.</p>
+<p><b>Languages</b> (OpenAlex's labels): ${top("language", 10)}.</p>
+<p><b>Types:</b> ${top("type", 8)}.</p>
+<p><b>Open access:</b> ${fmt(open)} (${pct(open)}).</p>
+<p><b>Journals and repositories:</b> ${top("primary_location.source.id", 10)}.</p>`;
+}
+
 /* ------------------------------------------------------------------ saving to Google Drive */
 const MB = 1e6;
 const sizeName = (bytes) => (bytes >= 1e9 ? `${bytes / 1e9} GB` : `${bytes / MB} MB`);
@@ -731,7 +885,7 @@ const sizeName = (bytes) => (bytes >= 1e9 ? `${bytes / 1e9} GB` : `${bytes / MB}
 function openSave() {
   const d = $("#save");
   if (!driveConfigured()) { toast("Saving to Google Drive is not set up on this copy of the site.", 4000); return; }
-  const studiesTab = state.tab === "studies";
+  const studiesTab = state.tab === "studies", trialsTab = state.tab === "trials";
   const counts = [...new Set([results.length, 100, 500, 1000, 2000, 5000, 10000, total].filter((n) => n && n <= total))].sort((a, b) => a - b);
   const pick = counts.filter((n) => n <= 1000).pop() || counts[0];
   const howMany = h("select", { id: "save-count" }, counts.map((n) => h("option", { value: n, selected: n === pick },
@@ -758,27 +912,28 @@ function openSave() {
     h("p", {}, "Research Finder makes a folder for this search in your Google Drive, inside “Research Finder”:"),
     h("ul", { class: "tree" },
       h("li", {}, h("strong", {}, "Results"), " — a Google Sheet: one row per result with its abstract, the same columns for every source, with links to the files saved",
-        studiesTab ? `, each study's design as OpenAlex tags it${checksOn() ? ", retractions and corrections" : ""} and replications` : "",
-        translationsOn() ? ", and an automatic English translation of titles in other languages" : ""),
+        studiesTab ? `, each study's design as OpenAlex tags it${checksOn() ? ", retractions and corrections, hijacked journals" : ""} and replications` : "",
+        trialsTab ? ", each registration's status, phase, study type, whether results are posted, participants, dates, conditions, interventions, countries and publications" : "",
+        translationsOn() && !trialsTab ? ", and an automatic English translation of titles in other languages" : ""),
       h("li", {}, h("strong", {}, "Results.ris"), " — the same results as a reference file, to import into Zotero, EndNote, Mendeley, Rayyan, Covidence or ASReview"),
-      h("li", {}, h("strong", {}, "Files"), " — a Google Sheet with every file found: its download link, and whether it was saved (and if not, why)"),
+      trialsTab ? null : h("li", {}, h("strong", {}, "Files"), " — a Google Sheet with every file found: its download link, and whether it was saved (and if not, why)"),
       h("li", {}, h("strong", {}, "Search details"), " — a document with your keywords, every term and translation used, the filters and the exact queries, so the search can be repeated, with the PRISMA-S items, a methods paragraph and the automated steps to report"),
       h("li", {}, h("strong", {}, "PRISMA flow diagram.svg"), " — the PRISMA 2020 flow diagram with the numbers of this search filled in, the rest for you to fill"),
       h("li", {}, h("strong", {}, RECORD), " — the search and which results were saved, so that Earlier saves can run it again and add only the new results"),
       studiesTab ? h("li", {}, h("strong", {}, "Papers/"), " — the open PDFs (also open versions found through Semantic Scholar, such as arXiv preprints)")
-        : h("li", {}, h("strong", {}, "Datasets/"), " — one folder per dataset with its open data files")),
+        : trialsTab ? null : h("li", {}, h("strong", {}, "Datasets/"), " — one folder per dataset with its open data files")),
     h("p", { class: "save-row" }, h("label", { for: "save-count" }, "Save "), howMany, h("span", {}, ` of ${fmt(total)} results`)),
     sizeNote,
-    h("p", { class: "save-row" }, h("label", {}, files, studiesTab ? " Save the open PDFs" : " Save the open data files")),
-    h("p", { class: "save-row" }, h("span", {}, "Up to"), totalLimit, h("span", {}, "in all, files up to"), fileLimit, h("span", {}, "each")),
-    studiesTab ? pdfNote : h("p", { class: "note" }, relayAddress()
+    trialsTab ? null : h("p", { class: "save-row" }, h("label", {}, files, studiesTab ? " Save the open PDFs" : " Save the open data files")),
+    trialsTab ? null : h("p", { class: "save-row" }, h("span", {}, "Up to"), totalLimit, h("span", {}, "in all, files up to"), fileLimit, h("span", {}, "each")),
+    trialsTab ? null : studiesTab ? pdfNote : h("p", { class: "note" }, relayAddress()
         ? "Zenodo and Harvard Dataverse files are copied into your Drive, and OSF and figshare files through your file relay. For other repositories the sheet links to the dataset's page."
         : ["Zenodo and Harvard Dataverse files are copied into your Drive. OSF and figshare do not let browsers download files, so theirs are listed with their download links in “Files” (",
           h("button", { type: "button", class: "link-btn", onclick: () => { d.close(); openSettings(); } }, "connect a file relay"),
           " to copy them too). For other repositories the sheet links to the dataset's page."]),
     h("p", { class: "note" }, "A large save takes a while: keep this tab open. Your Drive needs to be connected: Google asks you to allow access the first time, and to connect again if a save takes more than an hour."),
     h("div", { class: "save-actions" },
-      h("button", { type: "button", class: "btn btn-primary", id: "save-go", onclick: () => runSave(Number(howMany.value), files.checked, Number(fileLimit.value), Number(totalLimit.value)) }, "Save to my Drive")),
+      h("button", { type: "button", class: "btn btn-primary", id: "save-go", onclick: () => runSave(Number(howMany.value), files.checked && !trialsTab, Number(fileLimit.value), Number(totalLimit.value)) }, "Save to my Drive")),
     h("div", { id: "save-signin", class: "save-progress" }),
     h("div", { id: "save-progress", class: "save-progress", role: "status", "aria-live": "polite" }));
   if (!d.open) d.showModal();
@@ -835,7 +990,7 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
   try {
     if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
     const { rows, notes: gotNotes } = await collect(count, progress);
-    const english = translationsOn()
+    const english = translationsOn() && state.tab !== "trials"
       ? await englishTitles(rows, { onProgress: (n, of) => progress(`Translating the titles in other languages into English: ${fmt(n)} of ${fmt(of)}…`) }) : null;
     const checks = state.tab === "studies";
     if (checks) await checkAll(rows, progress);
@@ -1023,7 +1178,7 @@ function searchRecord(rows, complete) {
     about: "Research Finder reads this file to run the search again and add only the new results to this folder (Settings › Earlier saves). Changing it can stop that from working.",
     site: location.origin + location.pathname, link: location.href,
     tab: state.tab, input: state.input, mode: state.mode, sort: state.sort, filters: state.filters,
-    queries: state.tab === "studies" ? SOURCES.studies.queries(query()).parts : null,
+    queries: state.tab === "data" ? null : SOURCES[state.tab].queries(query()).parts,
     groups: groupsForSearch().map((ts) => ts.map(({ text, lang, src, of, i, loose }) => ({ text, lang, src, of, i, loose }))),
     runs: [{ date: new Date().toISOString(), total, saved: rows.length, all: complete }],
     items: rows.map(itemKeys),
@@ -1088,7 +1243,7 @@ function againPart(s) {
       h("div", { class: "save-actions" }, remind));
     return out;
   }
-  const studies = rec.tab !== "data";
+  const tab = SOURCES[rec.tab] ? rec.tab : "studies", studies = tab === "studies";
   const nq = (rec.queries || []).length;
   const key = Boolean(local.get("openalexKey", ""));
   const prev = runs[runs.length - 1];
@@ -1098,12 +1253,12 @@ function againPart(s) {
   const go = h("button", { type: "button", class: "btn btn-primary" }, "Run it again and add what is new");
   go.onclick = () => runAgain(s, rec, files.checked, go, box, signin);
   out.push(
-    h("p", { class: "note" }, `Research Finder runs ${s.record ? "the same" : "its"} ${studies ? (nq > 1 ? `${nq} OpenAlex queries` : "OpenAlex query") : "queries in the same repositories"} again, with the same filters, and adds to this folder only the results it did not have: a sheet and a RIS file “New results” with the date, their open ${studies ? "PDFs" : "data files"}, and a note in “Search details”${studies && checksOn() ? ", which also lists the studies saved before that are now retracted" : ""}.`,
+    h("p", { class: "note" }, `Research Finder runs ${s.record ? "the same" : "its"} ${studies ? (nq > 1 ? `${nq} OpenAlex queries` : "OpenAlex query") : tab === "trials" ? "ClinicalTrials.gov query" : "queries in the same repositories"} again, with the same filters, and adds to this folder only the results it did not have: a sheet and a RIS file “New results” with the date${tab === "trials" ? "" : `, their open ${studies ? "PDFs" : "data files"}`}, and a note in “Search details”${studies && checksOn() ? ", which also lists the studies saved before that are now retracted" : ""}.`,
       studies ? ` It takes about ${plural(asks, "request")} to OpenAlex, 200 results each${!key && asks > 25 ? "; without a key OpenAlex allows about 100 a day for your network, so it may stop early (then it adds what it got, and the next run adds the rest)" : ""}.` : ""),
     s.record ? null : h("details", { class: "relay-guide" }, h("summary", {}, "Its queries, read from “Search details”"),
       h("p", { class: "note" }, "This save was made before Research Finder kept a record of its search, so the queries were read from its “Search details”, and the filters from the link at its end: check that they are the ones you ran."),
       (rec.queries || []).map((x) => h("p", { class: "tools-ids" }, x))),
-    h("p", { class: "save-row" }, h("label", {}, files, studies ? " Save the open PDFs of the new studies" : " Save the open data files of the new datasets")),
+    tab === "trials" ? null : h("p", { class: "save-row" }, h("label", {}, files, studies ? " Save the open PDFs of the new studies" : " Save the open data files of the new datasets")),
     h("div", { class: "save-actions" }, go, remind), signin, box);
   return out;
 }
@@ -1113,7 +1268,7 @@ async function runAgain(s, rec, withFiles, go, box, signinBox) {
   go.disabled = true;
   try {
     if (!driveConnected()) { progress("Connecting to Google Drive…"); await connect(); }
-    const tab = rec.tab === "data" ? "data" : "studies", studies = tab === "studies";
+    const tab = SOURCES[rec.tab] ? rec.tab : "studies", studies = tab === "studies";
     const q = { groups: rec.groups || [], mode: rec.mode === "any" ? "any" : "all", filters: { ...emptyFilters(), ...(rec.filters || {}) }, sort: rec.sort || "rel" };
     const info = {}, notes = [], rows = [];
     progress("Running the search again…");
@@ -1149,13 +1304,13 @@ async function runAgain(s, rec, withFiles, go, box, signinBox) {
     const record = { ...rec, app: "Research Finder", format: 1,
       runs: [...(s.record && rec.runs ? rec.runs : [{ date: s.created || "", saved: earlier.length }]), run], items: [...earlier, ...fresh.map(itemKeys)] };
     const res = await addToSave({
-      save: s, name, header: header(en, studies), rows: fresh.map((r, i) => rowOf(r, i, en, studies)), ris: fresh.length ? risOf(fresh, en, studies) : "", jobs,
+      save: s, name, header: header(en, studies, tab), rows: fresh.map((r, i) => rowOf(r, i, en, studies, tab)), ris: fresh.length ? risOf(fresh, en, studies) : "", jobs,
       maxFile: 250 * MB, maxTotal: 2e9, record, onProgress: progress, onSignIn: signInAgain(signinBox),
       note: (st) => againHtml({ when, rec, exact: Boolean(s.record), studies, total: total_, retrieved: rows.length, fresh, gone, earlier: earlier.length, changed, notes, name, st }),
     });
     fill(box, h("p", {},
       h("strong", {}, fresh.length ? `Added ${plural(fresh.length, "new result")}. ` : "Nothing new. "),
-      `The search found ${fmt(rows.length)} ${studies ? "studies" : "datasets"}; ${fmt(rows.length - fresh.length)} of them were in this folder already. `,
+      `The search found ${plural(rows.length, ...SOURCES[tab].noun)}; ${fmt(rows.length - fresh.length)} of them were in this folder already. `,
       res.sheet ? [link(res.sheet.webViewLink, name), " · "] : null, link(s.link, "Open the folder"),
       jobs.length ? h("span", { class: "note" }, ` ${plural(res.papers + res.dataFiles, "file")} saved (${(res.bytes / MB).toFixed(1)} MB) of ${fmt(jobs.length)} found.`) : null,
       changed.length ? h("span", { class: "note warn" }, ` ${plural(changed.length, "study", "studies")} saved before ${changed.length === 1 ? "is" : "are"} now marked retracted, withdrawn or with an expression of concern: “Search details” lists ${changed.length === 1 ? "it" : "them"}.`) : null,
@@ -1285,8 +1440,11 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": 
 /* The record of the search, so that it can be reported and repeated. */
 /* What the checks found among the studies saved, for "Search details". */
 function checkStats(rows) {
-  const s = { on: checksOn(), withDoi: 0, checked: 0, serious: 0, concern: 0, corrected: 0, fromOpenAlex: 0, designed: 0, designs: {}, replicated: 0, date: replicationsDate() };
+  const s = { on: checksOn(), withDoi: 0, checked: 0, serious: 0, concern: 0, corrected: 0, fromOpenAlex: 0, designed: 0, designs: {}, replicated: 0, date: replicationsDate(),
+    doaj: 0, hijacked: 0, hijackDate: hijackedDate() };
   for (const r of rows) {
+    if (r.doaj) s.doaj++;
+    if (hijackOf(r)) s.hijacked++;
     if (r.doi) s.withDoi++;
     const u = updatesOf(r);
     if (u.checked) s.checked++;
@@ -1310,6 +1468,9 @@ function checksHtml(c) {
     ? `${fmt(c.serious)} of the studies saved are retracted, partly retracted, withdrawn or removed; ${fmt(c.concern)} have an expression of concern; ${fmt(c.corrected)} were corrected. Research Finder asked Crossref, whose update notices include the Retraction Watch database, about the ${fmt(c.withDoi)} studies with a DOI on ${esc(dateText(new Date().toISOString().slice(0, 10)))}${unchecked > 0 ? `; ${fmt(unchecked)} could not be checked, because Crossref did not answer` : ""}. Where Crossref had no notice, OpenAlex's own retraction flag was used${c.fromOpenAlex ? ` (${fmt(c.fromOpenAlex)} studies)` : ""}. A study without a flag can still have problems that no notice records.`
     : "Not checked: the check was turned off in Settings."}</p>
 <p><b>Study designs</b> (column “Study design (automatic tag)”). ${c.designed ? `${fmt(c.designed)} of the studies saved have a design tag: ${designs}.` : "None of the studies saved has a design tag."} OpenAlex tags seven designs from PubMed's study types automatically, from the title, journal and abstract. A tag is right at least 96% of the time (randomized controlled trials 99%), but many studies have none, among them every study without an abstract, so an empty cell does not mean that a study has another design.</p>
+<p><b>Journals</b> (column “Journal (DOAJ, hijacked journals)”). ${fmt(c.doaj)} of the studies saved are in journals listed in the Directory of Open Access Journals (DOAJ), as OpenAlex records it; a journal outside DOAJ is not suspect for that reason. ${c.on
+    ? `${fmt(c.hijacked)} ${c.hijacked === 1 ? "has its page" : "have their pages"} on the website of a hijacked journal, a fake copy of a real journal, in Retraction Watch's Hijacked Journal Checker${c.hijackDate ? ` (as read on ${esc(dateText(c.hijackDate))})` : ""}, which lists confirmed cases only.`
+    : "Hijacked journals were not checked: the check was turned off in Settings."}</p>
 <p><b>Replications</b> (column “Replications (FReD)”). ${fmt(c.replicated)} of the studies saved have replications or reproductions recorded in the FORRT Replication Database (FReD; CC BY 4.0; data of ${esc(c.date || "unknown date")}), which lists about 2,600 findings, most of them from psychology: a study it does not list may still have been replicated.</p>`;
 }
 
@@ -1329,9 +1490,10 @@ function similarNote(c) {
 /* For "Search details": the PRISMA 2020 numbers, the PRISMA-S items, a methods paragraph and the automated steps to
    disclose, from what this search actually did. Placeholders in [brackets] are for the reviewers to complete. */
 function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
-  const f = state.filters, studies = state.tab === "studies";
+  const f = state.filters, studies = state.tab === "studies", trials = state.tab === "trials";
   const day = dateText(new Date().toISOString().slice(0, 10));
-  const groups = state.groups.map((g) => ({ g, used: activeTerms(g, state.langsOff) })).filter((x) => x.used.length);
+  // a registry search uses the English terms only
+  const groups = state.groups.map((g) => ({ g, used: activeTerms(g, state.langsOff).filter((t) => !trials || !isTranslation(t)) })).filter((x) => x.used.length);
   const used = groups.flatMap((x) => x.used);
   const machine = used.filter((t) => isTranslation(t) && t.src === "mt").length;
   const langs = new Set(used.filter(isTranslation).map((t) => t.lang));
@@ -1342,20 +1504,20 @@ function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
   const limits = filters.join("; ");
   const ref = citation();
   const check = studies && review.check && review.check.signature === searchSignature() ? review.check : null;
-  const sources = studies ? "OpenAlex (https://openalex.org)" : "DataCite, Zenodo, Harvard Dataverse, OSF (through its SHARE index) and OpenAIRE";
+  const sources = studies ? "OpenAlex (https://openalex.org)" : trials ? "the trial registry ClinicalTrials.gov (https://clinicaltrials.gov)" : "DataCite, Zenodo, Harvard Dataverse, OSF (through its SHARE index) and OpenAIRE";
   const concepts = groups.map((x) => `“${esc(x.g.label)}” (${plural(x.used.length, "term")})`).join(state.mode === "all" ? " AND " : " OR ");
-  const methods = `We searched ${esc(sources)} on ${esc(day)} with Research Finder, which sends the search to ${studies ? "the OpenAlex API" : "the repositories' APIs"}. `
+  const methods = `We searched ${esc(sources)} on ${esc(day)} with Research Finder, which sends the search to ${studies ? "the OpenAlex API" : trials ? "the ClinicalTrials.gov API (version 2)" : "the repositories' APIs"}. `
     + (groups.length > 1 ? `The search combined ${plural(groups.length, "concept")}, ${state.mode === "all" ? "all of which had to match" : "any of which could match"}: ${concepts}. ` : `The search used one concept, ${concepts}. `)
     + `${groups.length > 1 ? "The terms for each concept were" : "Its terms were"} our own words${mined ? `, the other wordings used in the ${SAMPLE} studies in OpenAlex that match it best` : ""}, synonyms from Wikidata${added ? ", related phrases we chose from those suggested" : ""}`
     + `${langs.size ? `, and translations into ${plural(langs.size, "language")} from Wikidata and Wikimedia's machine translation service MinT, each machine translation checked by translating it back into English` : ""}. `
-    + `They were searched in ${f.fulltext ? "titles, abstracts and full texts" : "titles and abstracts"}. ${limits ? `Limits: ${esc(limits)}. ` : "No limits were applied. "}`
+    + `They were searched in ${trials ? "all the fields of the registrations" : f.fulltext ? "titles, abstracts and full texts" : "titles and abstracts"}. ${limits ? `Limits: ${esc(limits)}. ` : "No limits were applied. "}`
     + `The full strategy, with every term and the exact queries, is in [Supplementary file]. `
     + `The search found ${fmt(total)} records${c.duplicates != null ? `; after ${fmt(c.duplicates)} duplicates within the search were removed, ${fmt(nRows)} were exported for screening` : `, of which ${fmt(nRows)} were exported for screening`}`
     + `${check ? `. It retrieved ${fmt(check.hit.length)} of ${plural(check.works.length, "known eligible study", "known eligible studies")} that are in OpenAlex` : ""}.`;
   const prismaS = [
-    ["Database name", studies ? "OpenAlex, searched through its API with Research Finder." : "DataCite, Zenodo, Harvard Dataverse, OSF (SHARE index) and OpenAIRE, searched through their APIs with Research Finder."],
-    ["Multi-database searching", studies ? "Not applicable: OpenAlex is one index, which draws its records from Crossref, PubMed, repositories and other sources." : "Each repository was searched on its own and the results were put together, each dataset once."],
-    ["Study registries", "[To complete: registries searched, such as ClinicalTrials.gov or PROSPERO.]"],
+    ["Database name", studies ? "OpenAlex, searched through its API with Research Finder." : trials ? "None in this search: it searched a study registry (below). [Add the databases searched separately.]" : "DataCite, Zenodo, Harvard Dataverse, OSF (SHARE index) and OpenAIRE, searched through their APIs with Research Finder."],
+    ["Multi-database searching", studies ? "Not applicable: OpenAlex is one index, which draws its records from Crossref, PubMed, repositories and other sources." : trials ? "Not applicable." : "Each repository was searched on its own and the results were put together, each dataset once."],
+    ["Study registries", trials ? `ClinicalTrials.gov, searched through its API (version 2) with Research Finder on ${esc(day)}, with the English terms. [Add other registries searched, such as the WHO ICTRP portal or PROSPERO.]` : "[To complete: registries searched, such as ClinicalTrials.gov (Research Finder's tab “Registered studies”) or PROSPERO.]"],
     ["Online resources and browsing", "[To complete: websites, conference proceedings or tables of contents browsed, and how.]"],
     ["Citation searching", review.chase ? `Backward and forward citation searching in OpenAlex from ${plural(review.chase.seeds.length, "study", "studies")} on ${dateText(review.chase.date)}, with Research Finder.` : "[To complete, for example with Review tools › Citation search.]"],
     ["Contacts", "[To complete: authors, experts or others contacted.]"],
@@ -1367,13 +1529,13 @@ function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
     ["Updates", "To update the search, Research Finder (Settings › Earlier saves) runs the same queries again and adds only the new records to this folder, with a note below. [Say when and how often the search was run again.]"],
     ["Dates of searches", esc(day)],
     ["Peer review", "[To complete: for example, a PRESS peer review of the strategy.]"],
-    ["Total records", `${studies ? "OpenAlex" : "The repositories"}: ${fmt(total)}${c.duplicates != null ? `; ${fmt(nRows)} after duplicates within the search were removed` : `; ${fmt(nRows)} saved`}.`],
-    ["Deduplication", "Within this search, each record was kept once by its DOI or OpenAlex ID. [Describe how duplicates across all databases were removed, and with which software.]"],
+    ["Total records", `${studies ? "OpenAlex" : trials ? "ClinicalTrials.gov" : "The repositories"}: ${fmt(total)}${c.duplicates != null ? `; ${fmt(nRows)} after duplicates within the search were removed` : `; ${fmt(nRows)} saved`}.`],
+    ["Deduplication", trials ? "Each registration is one record (its NCT number). [Describe how registrations were matched to publications and how duplicates across all sources were removed.]" : "Within this search, each record was kept once by its DOI or OpenAlex ID. [Describe how duplicates across all databases were removed, and with which software.]"],
   ];
   const steps = [
     `<li><b>Term suggestions.</b> Wordings counted in the titles and abstracts of the ${SAMPLE} studies in OpenAlex that match each keyword best (a rule-based count, no AI model)${mined ? `: ${fmt(mined)} were searched` : ""}; synonyms from Wikidata. Every term was shown, and the reviewers could switch any of them off.</li>`,
     machine ? `<li><b>Machine translation of the terms.</b> ${fmt(machine)} terms translated by Wikimedia's MinT (open neural machine translation models) on ${esc(day)}, each translated back into English as a check${doubted ? `; ${fmt(doubted)} that did not come back with the same meaning were left out` : ""}. [Say whether someone who reads the language checked them.]</li>` : "",
-    `<li><b>Ranking.</b> ${studies ? "OpenAlex's" : "The repositories'"} relevance order${savedAll ? ": all results were saved, so it did not decide which records were kept" : `: only the first ${fmt(nRows)} in that order were saved`}.</li>`,
+    `<li><b>Ranking.</b> ${studies ? "OpenAlex's" : trials ? "ClinicalTrials.gov's" : "The repositories'"} relevance order${savedAll ? ": all results were saved, so it did not decide which records were kept" : `: only the first ${fmt(nRows)} in that order were saved`}.</li>`,
     studies ? `<li><b>Study designs.</b> OpenAlex's automatic tags (a classifier reading the title and abstract; at least 96% precision by OpenAlex's benchmark, recall not reported) were shown${f.designs.length ? " and used as a filter" : ""}.</li>` : "",
     english && english.shown ? `<li><b>Machine translation of titles.</b> ${fmt(english.shown)} titles in other languages translated into English by MinT and checked by back-translation, to help screening.</li>` : "",
     check ? `<li><b>Validation.</b> The search was checked against ${plural(check.works.length, "known study", "known studies")} (see “Search validation”).</li>` : "",
@@ -1381,7 +1543,7 @@ function reportingHtml(nRows, savedAll, gotNotes, english, checks, filters) {
     `<li><b>Deduplication</b> within the search by exact DOI or OpenAlex ID.</li>`,
   ].filter(Boolean).join("");
   return `<h2>PRISMA 2020 flow diagram</h2>
-<p>“PRISMA flow diagram.svg” in this folder is the PRISMA 2020 flow diagram with the numbers this search gives: records identified from ${esc(c.databases.map(([n, v]) => `${n} (n = ${fmt(v)})`).join(", "))}${c.duplicates != null ? `, and ${fmt(c.duplicates)} duplicate records removed within the search` : ""}${c.citation != null ? `, and ${fmt(c.citation)} records from the citation search` : ""}. The other boxes show (n = …), to fill in after screening.${c.duplicates == null ? " Duplicates are not counted because not all results were saved." : ""} If you searched other databases too, add their records and count duplicates across all of them.</p>
+<p>“PRISMA flow diagram.svg” in this folder is the PRISMA 2020 flow diagram with the numbers this search gives: records identified from ${c.databases.length ? esc(c.databases.map(([n, v]) => `${n} (n = ${fmt(v)})`).join(", ")) : `the register ClinicalTrials.gov (n = ${fmt(c.registers)})`}${c.duplicates != null ? `, and ${fmt(c.duplicates)} duplicate records removed within the search` : ""}${c.citation != null ? `, and ${fmt(c.citation)} records from the citation search` : ""}. The other boxes show (n = …), to fill in after screening.${c.duplicates == null ? " Duplicates are not counted because not all results were saved." : ""} If you searched other databases too, add their records and count duplicates across all of them.</p>
 <h2>Reporting the search (PRISMA-S)</h2>
 <table border="1" cellpadding="5" cellspacing="0"><tr><th>Item</th><th>What to report</th></tr>${prismaS.map(([item, text], i) => `<tr><td>${i + 1}. ${esc(item)}</td><td>${text}</td></tr>`).join("")}</table>
 <h2>Methods paragraph</h2>
@@ -1404,6 +1566,11 @@ function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks 
     f.fulltext ? "Full texts searched too" : "",
     f.langs.length ? `Languages of the studies: ${f.langs.map((l) => LANG_NAMES[l] || l).join(", ")}` : "",
     f.repos.length ? `Repositories: ${f.repos.join(", ")}` : "",
+    f.countries.length ? `Authors from: ${f.countries.map(countryName).join(", ")} (OpenAlex's institution countries)` : "",
+    f.south ? "At least one author at an institution in the Global South (as OpenAlex marks institutions)" : "",
+    f.status.length ? `Status: ${f.status.map((x) => CT_STATUS_NAMES[x]).join(", ")}` : "",
+    f.results ? "Results posted in the registry" : "",
+    f.ctype.length ? `Study types: ${f.ctype.map((x) => CT_TYPES[x]).join(", ")}` : "",
   ].filter(Boolean);
   const list = (ts, withCount) => ts.map((t) => esc(t.text) + (withCount && t.n ? ` (${t.n})` : "")).join("; ");
   const named = (ts) => ts.map((t) => `${esc(t.text)} (${esc(LANG_NAMES[t.lang] || t.lang)})`).join("; ");
@@ -1430,6 +1597,10 @@ function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks 
     queries = `<p><b>OpenAlex</b> (search in titles and abstracts${f.fulltext ? ", and full texts" : ""})${parts.length > 1 ? `, as ${parts.length} searches whose results were put together, because OpenAlex takes up to 1,500 characters` : ""}:</p>`
       + parts.map((s, i) => `<p>${parts.length > 1 ? `Search ${i + 1}: ` : ""}<code>${esc(s)}</code></p>`).join("")
       + (dropped ? `<p>${fmt(dropped)} terms did not fit and were left out.</p>` : "");
+  } else if (state.tab === "trials") {
+    const { parts, dropped } = SOURCES.trials.queries(q);
+    queries = `<p><b>ClinicalTrials.gov</b> (API version 2, <code>query.term</code>, which searches every field of the registrations; English terms only):</p>`
+      + parts.map((x) => `<p><code>${esc(x)}</code></p>`).join("") + (dropped ? `<p>${fmt(dropped)} terms did not fit and were left out.</p>` : "");
   } else {
     queries = REPO_NAMES.filter((n) => !f.repos.length || f.repos.includes(n))
       .map((n) => `<p><b>${esc(n)}</b>:</p>${repoQueries(n, q.groups, q.mode).parts.map((s) => `<p><code>${esc(s)}</code></p>`).join("")}`).join("");
@@ -1446,11 +1617,12 @@ function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks 
 <h2>What was saved</h2>
 <p>${fmt(total)} results found${state.tab === "data" ? " (a dataset kept in two repositories counts twice)" : extra.parts > 1 ? " (a study found by two of the searches counts twice)" : ""}; ${fmt(nRows)} saved in “Results” and in the reference file “Results.ris”, in the order shown (${esc((src.sorts.find(([v]) => v === state.sort) || ["", "Best match"])[1])}), each once.</p>
 ${gotNotes.length ? `<p>${gotNotes.map(esc).join(" ")}</p>` : ""}
-<p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / MB).toFixed(1)} MB), of ${fmt(nJobs)} found; the sheet “Files” lists every one.${listedOnly ? ` ${fmt(listedOnly)} are in repositories that do not let browsers download files (OSF, figshare): the sheet has their download links.` : ""}${stats.relayed ? ` ${fmt(stats.relayed)} of the files saved came through the file relay ${esc(relayAddress())}, because their sites do not let browsers download them.` : ""}</p>
+${state.tab === "trials" ? "" : `<p>Files: ${fmt(stats.papers)} PDFs and ${fmt(stats.dataFiles)} data files saved (${(stats.bytes / MB).toFixed(1)} MB), of ${fmt(nJobs)} found; the sheet “Files” lists every one.${listedOnly ? ` ${fmt(listedOnly)} are in repositories that do not let browsers download files (OSF, figshare): the sheet has their download links.` : ""}${stats.relayed ? ` ${fmt(stats.relayed)} of the files saved came through the file relay ${esc(relayAddress())}, because their sites do not let browsers download them.` : ""}</p>`}
 ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
 ${english && english.foreign ? `<h2>Titles in other languages</h2>
 <p>${fmt(english.foreign)} of the results saved have a title in another language. ${fmt(english.shown)} of them have an automatic English translation in the column “${EN_TITLE}” of “Results”, and in a note in “Results.ris”, made by Wikimedia's open machine translation (MinT) and checked by translating it back into the original language${english.failed ? `; ${fmt(english.failed)} did not pass that check and have none` : ""}${english.same ? `; ${fmt(english.same)} needed none, as their title says it in English too` : ""}${english.missing ? `; ${fmt(english.missing)} were not translated, because MinT did not answer or a save translates at most ${fmt(SAVE_TRANSLATIONS)}` : ""}. These are machine translations, not professional ones: use them to see what a study is about, and the original titles to screen and to cite.</p>` : ""}
 ${checks ? checksHtml(checks) : ""}
+${state.tab === "studies" && review.overview && review.overview.signature === searchSignature() ? overviewHtml(review.overview) : ""}
 ${state.tab === "studies" && review.check && review.check.signature === searchSignature() ? checkHtml(review.check, esc) : ""}
 ${review.chase ? chaseNote(review.chase) : ""}
 ${review.similar ? similarNote(review.similar) : ""}
@@ -1464,7 +1636,7 @@ function renderTabs() {
   fill($("#tabs"), Object.values(SOURCES).map((s) => h("button", {
     type: "button", role: "tab", "aria-selected": String(state.tab === s.id), class: "tab", title: s.note,
     onclick: () => { if (state.tab !== s.id) { state.tab = s.id; state.sort = "rel"; state.filters = emptyFilters(); renderTabs(); search(0); } },
-  }, s.name, h("span", { class: "tab-note" }, s.id === "studies" ? "OpenAlex" : "DataCite · Zenodo · Dataverse · OSF · OpenAIRE"))));
+  }, s.name, h("span", { class: "tab-note" }, s.tab))));
 }
 
 function renderFilters() {
@@ -1501,7 +1673,22 @@ function renderFilters() {
         (e) => { f.repos = (f.repos.length ? f.repos : [...REPO_NAMES]).filter((x) => x !== n); if (e.target.checked) f.repos.push(n); if (f.repos.length === REPO_NAMES.length) f.repos = []; search(0); }))));
   }
   if (has("open")) sections.push(h("div", { class: "f-section" }, h("h3", {}, "Access"), opt("Open access", f.open, (e) => { f.open = e.target.checked; search(0); })));
-  sections.push(h("div", { class: "f-section" }, h("h3", {}, "Year"),
+  if (has("authors")) {
+    sections.push(h("div", { class: "f-section" }, h("h3", {}, "Authors"),
+      opt("At least one at an institution in the Global South", f.south, (e) => { f.south = e.target.checked; search(0); }),
+      f.countries.map((c) => opt(`From ${countryName(c)}`, true, () => { toggleIn(f.countries, c, false); search(0); })),
+      h("p", { class: "note f-note" }, "The Global South as OpenAlex marks institutions. ", f.countries.length ? "" : "Overview, above the results, adds a country.")));
+  }
+  if (has("status")) {
+    sections.push(h("div", { class: "f-section" }, h("h3", {}, "Status"),
+      Object.entries(CT_STATUS_NAMES).map(([k, l]) => opt(l, f.status.includes(k), (e) => { toggleIn(f.status, k, e.target.checked); search(0); }))));
+  }
+  if (has("results")) sections.push(h("div", { class: "f-section" }, h("h3", {}, "Results"), opt("Results posted in the registry", f.results, (e) => { f.results = e.target.checked; search(0); })));
+  if (has("ctype")) {
+    sections.push(h("div", { class: "f-section" }, h("h3", {}, "Study type"),
+      Object.entries(CT_TYPES).map(([k, l]) => opt(l, f.ctype.includes(k), (e) => { toggleIn(f.ctype, k, e.target.checked); search(0); }))));
+  }
+  sections.push(h("div", { class: "f-section" }, h("h3", {}, state.tab === "trials" ? "Year the study started" : "Year"),
     h("div", { class: "f-years" }, yearInput("from"), "–", yearInput("to")),
     h("div", { class: "f-quick" }, quick(`Since ${now - 4}`, now - 4, null), quick("Since 2015", 2015, null), f.from || f.to ? quick("Any year", null, null) : null)));
   if (has("langs")) {
@@ -1510,7 +1697,8 @@ function renderFilters() {
       h("button", { type: "button", class: "link-btn f-more", onclick: () => { state.showAllLangs = !state.showAllLangs; renderFilters(); } },
         state.showAllLangs ? "fewer languages" : `all ${langCodes.length} languages`)));
   }
-  const active = f.kinds.length || f.designs.length || f.langs.length || f.from || f.to || f.open || f.repos.length || f.fulltext;
+  const active = f.kinds.length || f.designs.length || f.langs.length || f.from || f.to || f.open || f.repos.length || f.fulltext
+    || f.countries.length || f.south || f.status.length || f.results || f.ctype.length;
   if (active) sections.push(h("div", { class: "f-section" }, h("button", { type: "button", class: "btn btn-small", onclick: () => { state.filters = emptyFilters(); search(0); } }, "Clear filters")));
   fill($("#filters-body"), sections);
 }
@@ -1564,10 +1752,10 @@ function openSettings() {
     h("label", { class: "f-option" }, h("input", { type: "checkbox", checked: translationsOn(), onchange: (e) => local.set("titlesEn", e.target.checked ? null : false) }),
       "Show their titles with an English translation"),
     h("p", { class: "note" }, "An automatic translation in [brackets] under each title in another language, and a button that translates its abstract. Wikimedia's MinT makes them, the open service that translates your keywords, and each title's translation is checked by translating it back. They are machine translations, not professional ones: enough to see what a study is about, not to quote."),
-    h("h3", {}, "Retractions and corrections"),
+    h("h3", {}, "Retractions, corrections and hijacked journals"),
     h("label", { class: "f-option" }, h("input", { type: "checkbox", checked: checksOn(), onchange: (e) => local.set("updates", e.target.checked ? null : false) }),
-      "Check the studies shown with Crossref"),
-    h("p", { class: "note" }, "Research Finder sends the DOIs of the studies shown, and of the studies you save, to Crossref, whose update notices include the Retraction Watch database, and marks the ones that were retracted, withdrawn, corrected or given an expression of concern. Without this check, only OpenAlex's own retraction flag is shown."),
+      "Check the studies shown with Crossref and Retraction Watch"),
+    h("p", { class: "note" }, "Research Finder sends the DOIs of the studies shown, and of the studies you save, to Crossref, whose update notices include the Retraction Watch database, and marks the ones that were retracted, withdrawn, corrected or given an expression of concern. It also reads Retraction Watch's list of hijacked journals (fake copies of real journals, from a Google Sheet, once a day) and marks studies whose pages are on their websites. Without this check, only OpenAlex's own retraction flag is shown."),
     h("h3", {}, "Your library (optional)"),
     h("p", { class: "note" }, "Studies behind a paywall can be opened through your university's subscriptions. With your library's link resolver, each study has a link “Find it at my library”; with its proxy, a link “Through my library” that opens the publisher's page signed in with your library account. Both addresses are kept only in this browser, and nothing is sent anywhere until you click a link."),
     h("label", { for: "set-resolver", class: "tools-label" }, "Link resolver (OpenURL)"), resolver,
@@ -1592,8 +1780,11 @@ function openSettings() {
     h("h3", {}, h("label", { for: "set-key" }, "OpenAlex key (optional)")),
     h("p", { class: "note" }, "Without a key, OpenAlex shares a free allowance of about 100 searches a day among everyone on your network, and limits free searches when it is busy. Each keyword takes one search to read how studies word it, and a search with many translations is split into up to 3 OpenAlex searches. A free personal key (",
       link("https://openalex.org/settings/api", "get one"), ") allows ten times more, up to 8 searches for one, and is not slowed down. It is kept only in this browser."), key,
+    h("h3", {}, "Zotero (optional)"),
+    h("p", { class: "note" }, "With a key of your own, Export › Send to Zotero puts the results straight into your Zotero library, in a new collection."),
+    keyForm(),
     h("h3", {}, "Other services"),
-    h("p", { class: "note" }, "No other keys are needed. Wikidata, Wikimedia's MinT translation, Crossref, the DOI Foundation's citation formatter, DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE are free and open. Machine translations are remembered in this browser, so each term and title is translated only once. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one. The replications come from a copy of the FORRT Replication Database that this site keeps, so looking them up sends nothing anywhere."));
+    h("p", { class: "note" }, "No other keys are needed. Wikidata, Wikimedia's MinT translation, Crossref, the DOI Foundation's citation formatter, ClinicalTrials.gov, DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE are free and open. Machine translations are remembered in this browser, so each term and title is translated only once. Semantic Scholar, which Research Finder asks for open PDFs when you save, does not accept keys sent from web pages, so it is asked without one. The replications come from a copy of the FORRT Replication Database that this site keeps, so looking them up sends nothing anywhere."));
   if (relay.value.trim()) check();
   d.onclose = () => {
     local.set("relay", relay.value.trim());
@@ -1677,8 +1868,12 @@ function renderAbout() {
     h("p", {}, "Each study shows the design OpenAlex tags automatically from its title and abstract (randomized controlled trial, observational study, systematic review, meta-analysis, study protocol and others), and the filter “Study design” finds them; the tags are rarely wrong, but many studies have none. Studies that were retracted, withdrawn, corrected or given an expression of concern are marked, from Crossref's update notices, which include the Retraction Watch database. Studies with replication attempts recorded in the FORRT Replication Database, most of them in psychology, list them with their outcomes."),
     h("h3", {}, "Review tools"),
     h("p", {}, "The review tools start from your studies: the ones you add with “☆ Add to your studies” under each result, or paste by DOI, PubMed ID or OpenAlex ID. “Check your search” shows which of them the search retrieves (its relative recall) and why it misses the others. “Citation search” finds their references and the studies that cite them, in OpenAlex's citation index. “More like these” finds the studies most similar to them, from OpenAlex's lists of similar works, and marks the ones your search misses. “What your results cite most” lists the works your best-matching results cite most often and marks the ones your search does not find."),
+    h("h3", {}, "Overview of the results"),
+    h("p", {}, "“Overview”, above the results, counts all of them with OpenAlex: by year, type and language, by the countries of the authors' institutions and whether an author works in the Global South, by journal, and by open access. Each bar filters the results by it, so that, for example, the studies with an author in the Global South can be screened on their own."),
+    h("h3", {}, "Registered studies"),
+    h("p", {}, "The tab “Registered studies” searches ClinicalTrials.gov, more than 600,000 registered trials and observational studies, with the English terms of your keywords. Each registration shows its status, phase, participants and whether results are posted, with the publications it lists; registrations of completed studies without a publication are a check on publication bias. Studies whose abstracts give a registration number (NCT or ISRCTN) link to it."),
     h("h3", {}, "References and your library"),
-    h("p", {}, "“Cite” under a study gives its reference in APA or any of more than 2,700 citation styles, formatted by the DOI Foundation's citation formatter from the data registered with its DOI; a study without a DOI gets an APA reference made from OpenAlex's data. Export gives the results as RIS, BibTeX or CSL-JSON, or as a reference list, and the page carries COinS data for the Zotero Connector. With your library's link resolver or proxy under Settings, each study links to its full text through your library's subscriptions."),
+    h("p", {}, "“Cite” under a study gives its reference in APA or any of more than 2,700 citation styles, formatted by the DOI Foundation's citation formatter from the data registered with its DOI; a study without a DOI gets an APA reference made from OpenAlex's data. Export gives the results as RIS, BibTeX or CSL-JSON, or as a reference list, or sends them to your Zotero library with a key of your own, and the page carries COinS data for the Zotero Connector. Studies in journals listed in the Directory of Open Access Journals carry a DOAJ badge, and studies on the websites of hijacked journals (fake copies of real journals, from Retraction Watch's list) are flagged. With your library's link resolver or proxy under Settings, each study links to its full text through your library's subscriptions."),
     h("h3", {}, "What is saved"),
     h("p", {}, "Each saved search becomes a folder inside “Research Finder” in your Drive: the sheet “Results” (one row per result, with its abstract, in the same columns for every source, each study's design tag, retractions and corrections, and replications, and an automatic English translation of titles in other languages), the same results as “Results.ris” for reference managers and screening tools, the sheet “Files” (every file found, its download link and whether it was saved), the document “Search details”, and the open PDFs and data files in their own folders."),
     h("h3", {}, "Running a search again"),
@@ -1721,6 +1916,11 @@ function toHash() {
   if (f.to) p.set("to", f.to);
   if (f.open) p.set("open", "1");
   if (f.fulltext) p.set("fulltext", "1");
+  if (f.countries.length) p.set("country", f.countries.join(","));
+  if (f.south) p.set("south", "1");
+  if (f.status.length) p.set("status", f.status.join(","));
+  if (f.results) p.set("results", "1");
+  if (f.ctype.length) p.set("studytype", f.ctype.join(","));
   const s = p.toString();
   const url = s ? `#${s}` : location.pathname + location.search;
   if (pushNext && location.hash !== (s ? `#${s}` : "")) history.pushState(null, "", url);
@@ -1745,6 +1945,11 @@ function fromHash() {
   f.to = parseInt(p.get("to"), 10) || null;
   f.open = p.get("open") === "1";
   f.fulltext = p.get("fulltext") === "1";
+  f.countries = list("country").filter((c) => /^[A-Za-z]{2}$/.test(c)).map((c) => c.toUpperCase());
+  f.south = p.get("south") === "1";
+  f.status = list("status").filter((x) => CT_STATUS_NAMES[x]);
+  f.results = p.get("results") === "1";
+  f.ctype = list("studytype").filter((x) => CT_TYPES[x]);
   state.input = p.get("q") || "";
   return null;
 }

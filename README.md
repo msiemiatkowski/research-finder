@@ -29,15 +29,20 @@ science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; 
   search their citations backward and forward, find studies similar to them ("More like these"), and list the works
   the results cite most that the search misses; "Search details" adds the PRISMA-S items, a methods paragraph and the
   automated steps to report, next to a pre-filled PRISMA 2020 flow diagram. A saved search can be run again with the
-  same queries, adding only the new records to its folder (MECIR C37 asks for searches less than 12 months old).
+  same queries, adding only the new records to its folder (MECIR C37 asks for searches less than 12 months old). The
+  tab "Registered studies" searches ClinicalTrials.gov with the same English terms (status, phase, participants,
+  posted results, linked publications), and studies on the websites of hijacked journals are flagged.
 - **Literature reviews.** How many studies each keyword has, existing reviews (Review filter), the most cited and the
   newest work, related phrases and the topics most often studied with yours, every abstract in one sheet, references
   in more than 2,700 citation styles, RIS, BibTeX and CSL-JSON files for reference managers, COinS for the Zotero
-  Connector, and links through the visitor's own library (OpenURL link resolver or proxy) to paywalled studies.
+  Connector, "Send to Zotero" with the visitor's own key, and links through the visitor's own library (OpenURL link
+  resolver or proxy) to paywalled studies.
 - **Secondary data analysis.** DataCite, Zenodo, Harvard Dataverse, OSF and OpenAIRE at once, with the open data
   files saved into one Drive folder per dataset and a sheet listing every file.
 - **Cross-cultural research.** Studies published in other languages, such as validation studies of adapted
-  questionnaires in national journals; filter by the language of the study. Their titles come with an automatic
+  questionnaires in national journals; filter by the language of the study. An overview counts all the results by
+  the countries of their authors, the share with an author in the Global South, language, year, type and journal,
+  and each bar filters the results (for example to studies with an author in one country). Their titles come with an automatic
   English translation in [brackets], and an abstract translates with one click, for a first look at what a study is
   about.
 
@@ -170,6 +175,26 @@ limited to the files the app creates (`drive.file`).
    library's OpenURL link resolver (a pasted Alma, SFX or Google Scholar library link is cut down to the library's own
    parameters) and proxy prefix (EZproxy `login?url=`, OpenAthens, or a template with `{url}`); each study then links
    to "Find it at my library" and "Through my library". Nothing is fetched for these links.
+11. **Overview.** One OpenAlex request per part of the search, with `group_bys` (a search: 10 credits, whatever the
+   number of groupings), counts all the results by `publication_year`, `type`, `language`, `authorships.countries`,
+   `authorships.institutions.is_global_south` (true when at least one author's institution is in the Global South),
+   `primary_location.source.id` and `open_access.is_oa`; the parts' counts are added. Bars set the filters, including
+   two the overview adds: authors' countries (`authorships.countries:`) and the Global South
+   (`authorships.institutions.is_global_south:true`). A saved search's "Search details" gets the overview of the visit.
+12. **Registered studies.** ClinicalTrials.gov's API (version 2, CORS-open, keyless, no published rate limit; requests
+   start about 0.8 s apart): `query.term` with the English terms as one Boolean query (up to 1,800 characters), filters
+   on overall status, start date and study type (`filter.advanced` with `AREA[StartDate]RANGE[…]`, `AREA[StudyType]`),
+   `aggFilters=results:with`, token paging, 1,000 a request when saving. Records carry status, phase, study type,
+   participants, dates, conditions, interventions, countries, the PMIDs of linked publications and other IDs, in their
+   own sheet columns; the PRISMA diagram counts them under "Registers". Studies whose abstracts give an NCT or ISRCTN
+   number link to the registry.
+13. **Journals and Zotero.** OpenAlex's `is_in_doaj` gives a DOAJ badge linking to the journal's DOAJ page. Retraction
+   Watch's Hijacked Journal Checker (a Google Sheet read through `gviz/tq?tqx=out:csv`, kept a day in the browser)
+   gives the web addresses of fake copies of real journals; a study whose landing page or PDF is on one is flagged
+   (the shared ISSN alone is not used, as the copies take it from the real journal). "Send to Zotero" checks the
+   visitor's key (`/keys/current`), makes a collection and posts the records 50 to a request with a write token,
+   keeping only the fields Zotero lists for each item type (`/itemTypeFields`); the key stays in sessionStorage unless
+   the visitor asks to remember it.
 
 ### Limits
 
@@ -202,6 +227,11 @@ limited to the files the app creates (`drive.file`).
   without a key a large search may stop early (then what it got is added and the next run adds the rest). New records
   are newly retrieved, not necessarily newly published. OpenAlex recomputes its similar works from time to time, so
   "More like these" can give other studies later.
+- The overview's counts are OpenAlex's: a study two parts of a search find counts twice, countries are those of the
+  authors' institutions (not of the samples), and OpenAlex's language labels overstate English.
+- ClinicalTrials.gov is searched in English only, and other registries (WHO ICTRP, ISRCTN, EU CTR) are not searched,
+  only linked. The hijacked-journal list has confirmed cases only and comes from a Google Sheet without stated terms of
+  use, read as it is published; its layout could change.
 - Formatted references come from the metadata registered with each DOI: titles sometimes lack their subtitle, and
   italics are not kept. OpenAlex does not say which part of a name is the family name, so references made without a
   DOI, and BibTeX and CSL-JSON names, may split some names wrongly.
@@ -249,14 +279,15 @@ free plan allows 100,000 requests a day and is not billed. A copy of the site on
 
 The app is plain JavaScript modules (`docs/js/`): `terms.js` (keywords, Wikidata, the wordings studies use, machine
 translation of the terms), `translate.js` (English for results in other languages: which language a title is in,
-the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, files to save), `checks.js`
-(study designs, retractions and corrections from Crossref, replications from FReD), `review.js` (checking the search
+the translation and its check), `sources.js` (OpenAlex, DataCite, Zenodo, Harvard Dataverse, OSF, OpenAIRE, ClinicalTrials.gov, files to save), `checks.js`
+(study designs, retractions and corrections from Crossref, replications from FReD, DOAJ and hijacked journals), `review.js` (checking the search
 against known studies, citation searching, similar studies, your studies, what the results cite, the PRISMA flow
-diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted references), `drive.js` (Google sign-in, the
+diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted references), `zotero.js` (Send to Zotero),
+`drive.js` (Google sign-in, the
 folder structure, adding new results to a save), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=37`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=38`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

@@ -1,7 +1,7 @@
 /* Checks on studies: their study designs (OpenAlex's automatic tags), retractions and corrections (Crossref, which
-   carries the Retraction Watch database, and OpenAlex's own flag) and replication attempts (the FORRT Replication
-   Database, FReD). */
-import { getJSON, local, plural } from "./util.js?v=37";
+   carries the Retraction Watch database, and OpenAlex's own flag), replication attempts (the FORRT Replication
+   Database, FReD) and their journals (DOAJ, and Retraction Watch's list of hijacked journals). */
+import { getJSON, local, plural, parseCsv } from "./util.js?v=38";
 
 const pause = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 
@@ -114,7 +114,7 @@ let replications = null, loading = null;
 /* The replication attempts FReD records (a file this site keeps, built by tools/replications.py), loaded once. */
 export function loadReplications() {
   if (!loading) {
-    loading = getJSON(new URL("../data/replications.json?v=37", import.meta.url).href, { timeout: 30000 })
+    loading = getJSON(new URL("../data/replications.json?v=38", import.meta.url).href, { timeout: 30000 })
       .then((j) => { replications = j; return j; }, () => { loading = null; return null; });
   }
   return loading;
@@ -143,4 +143,62 @@ export function replicationText(list) {
 export function replicationsCell(r) {
   const list = replicationsOf(r);
   return list ? `${replicationText(list)}: ${list.map((x) => `${x.year || "n.d."} ${x.outcome} ${x.link}`).join("; ")}` : "";
+}
+
+/* ------------------------------------------------------------------ journals: DOAJ, hijacked copies */
+/* Retraction Watch's Hijacked Journal Checker lists confirmed fake copies of real journals with their web addresses (a
+   Google Sheet, read as CSV and kept in this browser for a day). A study whose page or PDF is at such an address is
+   flagged. The real journal's ISSN alone says nothing: the copies use it too. */
+const HIJACKED_CSV = "https://docs.google.com/spreadsheets/d/1ak985WGOgGbJRJbZFanoktAN_UFeExpE/gviz/tq?tqx=out:csv";
+let hijacked = null, hijackLoading = null, hijackedAt = 0;
+const hostOf = (u) => {
+  try { return new URL(/^https?:/i.test(u) ? u : `http://${u}`).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; }
+};
+export function loadHijacked() {
+  if (!checksOn()) return Promise.resolve(null);
+  if (!hijackLoading) {
+    hijackLoading = (async () => {
+      const kept = local.get("hijacked", null);
+      let rows = kept && Date.now() - kept.at < 864e5 && Array.isArray(kept.rows) ? kept.rows : null;
+      hijackedAt = rows ? kept.at : Date.now();
+      if (!rows) {
+        const r = await fetch(HIJACKED_CSV);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        // columns: number, journal, address of the copy, its ISSN, the real journal, its ISSN, its address
+        rows = parseCsv(await r.text()).filter((x) => /^\d+$/.test(String(x[0]).trim()) && x[2]).map((x) => [x[1], x[2], x[4], x[6]].map((v) => String(v || "").trim()));
+        if (rows.length < 50) throw new Error("the list looks wrong");
+        local.set("hijacked", { at: hijackedAt, rows });
+      }
+      hijacked = new Map();
+      for (const [title, url, original, originalUrl] of rows) {
+        for (const u of url.split(/[\s,;]+/)) {
+          const host = hostOf(u);
+          if (host && host.includes(".")) hijacked.set(host, { title, url: u, original: original || title, originalUrl: /^https?:/.test(originalUrl) ? originalUrl : "" });
+        }
+      }
+      return hijacked;
+    })().catch(() => { hijackLoading = null; return null; });
+  }
+  return hijackLoading;
+}
+export const hijackedDate = () => (hijackedAt ? new Date(hijackedAt).toISOString().slice(0, 10) : "");
+
+/* The hijacked copy a study's page or PDF is on (its address, the real journal), or null. */
+export function hijackOf(r) {
+  if (!hijacked || !checksOn()) return null;
+  for (const u of [r.site, r.pdf, r.url]) {
+    let host = hostOf(u || "");
+    while (host && host.split(".").length >= 2) {
+      if (hijacked.has(host)) return { ...hijacked.get(host), host };
+      host = host.split(".").slice(1).join(".");
+    }
+  }
+  return null;
+}
+
+/* For the sheet and the RIS file. */
+export function journalText(r) {
+  const h = hijackOf(r);
+  if (h) return `On ${h.host}, a hijacked copy of “${h.original}” (Retraction Watch Hijacked Journal Checker)${h.originalUrl ? `; the real journal: ${h.originalUrl}` : ""}`;
+  return r.doaj ? "Journal in DOAJ" : "";
 }

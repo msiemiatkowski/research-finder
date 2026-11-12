@@ -2,7 +2,7 @@
    BibTeX and CSL-JSON files, and references formatted in any CSL citation style, by the DOI Foundation's formatter
    (citation.doi.org, which uses the metadata registered with the DOI) or, for a record without a DOI, made here in
    APA style from OpenAlex's data. Nothing here costs any of the OpenAlex allowance. */
-import { $, h, fill, fmt, plural, fold, norm, local, toast, safeUrl, stripHtml } from "./util.js?v=37";
+import { $, h, fill, fmt, plural, fold, norm, local, toast, safeUrl, stripHtml } from "./util.js?v=38";
 
 const pause = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
@@ -51,10 +51,11 @@ export function openUrl(r) {
     if (first.given) set("rft.aufirst", first.given);
     people.forEach((a) => set("rft.au", a));
   };
-  if (r.kind === "d" || r.kind === "o") {
+  if (r.kind === "d" || r.kind === "o" || r.kind === "r") {
     set("rft_val_fmt", "info:ofi/fmt:kev:mtx:dc");
     set("rft.title", r.title);
     people.forEach((a) => set("rft.creator", a));
+    if (r.org) set("rft.creator", r.org);
     set("rft.date", date);
     set("rft.publisher", r.venue || r.publisher);
     set("rft.type", r.kind === "d" ? "dataset" : type || "text");
@@ -167,7 +168,7 @@ export function bibtexOf(records, { language = () => "", notes = () => [] } = {}
     const type = r.kind === "d" ? "misc" : BIB_TYPES[r.type] || (r.kind === "t" ? "phdthesis" : r.kind === "b" ? "book" : r.kind === "a" ? "article" : "misc");
     const venue = { article: "journal", incollection: "booktitle", phdthesis: "school" }[type] || (type === "book" ? "" : "howpublished");
     const fields = [
-      ["author", (r.people || []).map(bibName).join(" and ")],
+      ["author", r.org && !(r.people || []).length ? `{${bibText(r.org)}}` : (r.people || []).map(bibName).join(" and ")],
       ["title", bibText(r.title)],
       venue ? [venue, bibText(r.venue)] : null,
       ["year", r.year || ""],
@@ -202,10 +203,12 @@ export function cslOf(records, { notes = () => [] } = {}) {
     if (ids.has(id)) id = `${id}-${i + 1}`;
     ids.add(id);
     const item = {
-      id, type: r.kind === "d" ? "dataset" : CSL_TYPES[r.type] || (r.kind === "t" ? "thesis" : r.kind === "b" ? "book" : r.kind === "a" ? "article-journal" : "document"),
+      id, type: r.kind === "d" ? "dataset" : r.kind === "r" ? "report" : CSL_TYPES[r.type] || (r.kind === "t" ? "thesis" : r.kind === "b" ? "book" : r.kind === "a" ? "article-journal" : "document"),
       title: r.title,
-      author: (r.people || []).map((p) => { const n = splitName(p); return n.given ? { family: n.family, given: n.given, ...(n.suffix ? { suffix: n.suffix } : {}) } : { literal: n.family }; }),
-      "container-title": r.venue, issued: dateParts(r), volume: r.volume, issue: r.issue, page: pages(r, "-"), publisher: r.publisher,
+      author: r.org && !(r.people || []).length ? [{ literal: r.org }]
+        : (r.people || []).map((p) => { const n = splitName(p); return n.given ? { family: n.family, given: n.given, ...(n.suffix ? { suffix: n.suffix } : {}) } : { literal: n.family }; }),
+      "container-title": r.kind === "r" ? "" : r.venue, publisher: r.kind === "r" ? "ClinicalTrials.gov" : r.publisher, number: r.nct, genre: r.kind === "r" ? "Study registration" : "",
+      issued: dateParts(r), volume: r.volume, issue: r.issue, page: pages(r, "-"),
       DOI: r.doi, URL: r.doi ? "" : linkOf(r), ISSN: r.issn, PMID: r.pmid, abstract: r.full || r.abstract, language: r.lang,
       keyword: (r.keywords || []).join(", "), note: notes(r).join(". "),
     };
@@ -226,6 +229,9 @@ export const styleName = (id) => (STYLES.find(([s]) => s === id) || [id, id])[1]
 /* A reference in APA style, made here from OpenAlex's data, for a record without a DOI (or when the formatter does
    not answer). OpenAlex does not say which part of a name is the family name, so long names may come out wrong. */
 export function localReference(r) {
+  if (r.kind === "r") {
+    return `${r.org ? `${r.org.replace(/\.$/, "")}. ` : ""}(${r.year || "n.d."}). ${String(r.title || "").replace(/[.\s]+$/, "")} (ClinicalTrials.gov identifier ${r.nct}). ${r.url}`;
+  }
   const names = (r.people || []).map(splitName);
   const au = names.map((n) => (n.given ? `${n.family}, ${initials(n.given)}${n.suffix ? `, ${n.suffix}` : ""}` : n.family));
   const authors = au.length > 20 ? `${au.slice(0, 19).join(", ")}, … ${au[au.length - 1]}`
@@ -372,7 +378,8 @@ export function openCite(records, ctx, { title } = {}) {
       h("span", { class: "note" }, one ? "For a reference manager:" : "For a reference manager, the same records as a file:"),
       h("button", { type: "button", class: "btn btn-small", onclick: () => ctx.exportRecords(records, { format: "ris", name: one ? "reference" : "references" }) }, "RIS"),
       h("button", { type: "button", class: "btn btn-small", onclick: () => ctx.exportRecords(records, { format: "bib", name: one ? "reference" : "references" }) }, "BibTeX"),
-      h("button", { type: "button", class: "btn btn-small", onclick: () => ctx.exportRecords(records, { format: "csl", name: one ? "reference" : "references" }) }, "CSL-JSON")));
+      h("button", { type: "button", class: "btn btn-small", onclick: () => ctx.exportRecords(records, { format: "csl", name: one ? "reference" : "references" }) }, "CSL-JSON"),
+      h("button", { type: "button", class: "btn btn-small", onclick: () => ctx.exportRecords(records, { format: "zotero", name: one ? "reference" : "references" }) }, "Zotero")));
   if (!d.open) d.showModal();
   if (records.length > 300) {
     fill(out, h("p", { class: "note" }, `Formatting ${fmt(records.length)} references takes about ${Math.ceil(records.length / 4 / 60)} minutes. `,

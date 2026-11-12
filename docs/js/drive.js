@@ -13,7 +13,8 @@
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset
      and, each time the search is run again, "New results <date>" (a sheet and a RIS file) with only the new ones. */
-import { CONFIG } from "../config.js?v=37";
+import { CONFIG } from "../config.js?v=38";
+import { parseCsv } from "./util.js?v=38";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -172,27 +173,6 @@ const csvOf = (rows) => rows.map((r) => r.map((v) => {
   const s = String(v == null ? "" : v);
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }).join(",")).join("\r\n");
-
-/* Rows of a CSV text (quoted fields may hold commas, quotes and line breaks). */
-function parseCsv(text) {
-  const rows = [];
-  let row = [], field = "", quoted = false;
-  const t = String(text).replace(/^﻿/, "");
-  for (let i = 0; i < t.length; i++) {
-    const c = t[i];
-    if (quoted) {
-      if (c !== '"') field += c;
-      else if (t[i + 1] === '"') { field += '"'; i++; } else quoted = false;
-    } else if (c === '"') quoted = true;
-    else if (c === ",") { row.push(field); field = ""; }
-    else if (c === "\n" || c === "\r") {
-      if (c === "\r" && t[i + 1] === "\n") i++;
-      row.push(field); rows.push(row); row = []; field = "";
-    } else field += c;
-  }
-  if (field || row.length) { row.push(field); rows.push(row); }
-  return rows;
-}
 
 async function pool(items, n, fn) {
   let next = 0;
