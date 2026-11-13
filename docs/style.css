@@ -625,6 +625,18 @@ dialog::backdrop { background: rgb(10 12 10 / 55%); }
 .dialog-inner textarea { width: 100%; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: 13.5px/1.5 var(--mono); margin-top: 6px; resize: vertical; }
 .tools-label { display: block; font-weight: 650; margin-top: 14px; }
 #set-read { display: block; margin-top: 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 10px; background: var(--surface); color: var(--text); font: 400 14.5px var(--sans); max-width: 100%; }
+/* strategy check, code, allowance, pilot */
+.allowance { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.allowance.warn { color: var(--warm-ink); font-weight: 600; }
+.strategy-list { margin: 10px 0 0; padding-left: 4px; list-style: none; }
+.strategy-list li { margin: 0 0 9px; line-height: 1.45; }
+.strategy-list li.warn { color: var(--text); }
+.strategy-list li .btn { margin-left: 4px; }
+.code-block { margin: 6px 0 8px; padding: 10px 12px; max-height: 320px; overflow: auto; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font: 12.5px/1.5 var(--mono); white-space: pre; }
+.code-url { display: block; font: 12px/1.45 var(--mono); word-break: break-all; }
+.r-version { color: var(--text-2); }
+.pilot-seed { width: 6.5em; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 5px 8px; background: var(--surface); color: var(--text); font: inherit; }
+.tools-list .tools-actions select { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 4px 8px; background: var(--surface); color: var(--text); font: inherit; max-width: 14em; }
 /* AI helpers */
 #ai-model, #ai-service { display: block; margin-top: 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 10px; background: var(--surface); color: var(--text); font: 400 14.5px var(--sans); max-width: 100%; }
 #ai-model { width: 100%; font-family: var(--mono); font-size: 13.5px; }

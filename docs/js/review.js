@@ -3,9 +3,10 @@
    and the PRISMA 2020 flow diagram. Every OpenAlex request here is a list
    by identifier (1 credit) unless it says otherwise; a check of what the search finds costs a search (10 credits) per
    part of the query. */
-import { $, h, fill, fmt, plural, norm, local, NO_SPACES } from "./util.js?v=43";
-import { SOURCES, KIND_NAMES, worksByIds, citingWorks } from "./sources.js?v=43";
-import { openCite } from "./cite.js?v=43";
+import { $, h, fill, fmt, plural, norm, local, NO_SPACES } from "./util.js?v=44";
+import { SOURCES, KIND_NAMES, worksByIds, citingWorks, backgroundTexts } from "./sources.js?v=44";
+import { DESIGN_NAMES } from "./checks.js?v=44";
+import { openCite } from "./cite.js?v=44";
 
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -292,7 +293,8 @@ const KNOWN_HINT = "One per line: DOIs (10.1234/abcd or https://doi.org/…), Pu
 export function openTools(kind, ctx) {
   const d = $("#tools");
   const body = $("#tools-body");
-  const title = { check: "Check your search", chase: "Citation search", cited: "What your results cite most", similar: "More like these", mine: "Your studies" }[kind];
+  const title = { check: "Check your search", chase: "Citation search", cited: "What your results cite most", similar: "More like these", mine: "Your studies",
+    reviews: "Existing reviews and protocols", terms: "Terms from your studies" }[kind];
   fill($("#tools-title"), title);
   const out = h("div", { class: "tools-out", role: "status", "aria-live": "polite" });
   const busy = (msg) => fill(out, h("p", { class: "note pending" }, spinner(), msg));
@@ -379,6 +381,37 @@ export function openTools(kind, ctx) {
       h("label", { for: "tools-ids", class: "tools-label" }, "Your studies"), box, h("p", { class: "note" }, KNOWN_HINT, " Looking them up costs one OpenAlex lookup (a tenth of a search) for every 100."),
       h("div", { class: "save-actions" }, go), out);
     show();
+  } else if (kind === "reviews") {
+    const go = h("button", { type: "button", class: "btn btn-primary" }, "Look for them");
+    fill(body,
+      h("p", {}, "Before a review starts, guidance asks whether one exists already, or is under way. This looks for systematic reviews, meta-analyses and review protocols on your topic: the search without its filters, limited to OpenAlex's design tags, and PubMed's count with its systematic review filter. It is a quick check, not a search: reviews without the tags (all without an abstract, among others) are missed, and registered protocols are best searched in PROSPERO itself."),
+      h("p", { class: "note" }, `It uses ${plural(parts, "OpenAlex search", "OpenAlex searches")}${key ? "" : " (OpenAlex allows about 100 a day without a key)"}; the PubMed count costs nothing.`),
+      h("div", { class: "save-actions" }, go), out);
+    go.addEventListener("click", async () => {
+      go.disabled = true;
+      try {
+        const res = await existingReviews(ctx.query(), ctx.englishString(), busy);
+        ctx.remember("reviews", { ...res, input: ctx.input() });
+        fill(out, reviewsView(res, ctx, listOf));
+      } catch (e) { fill(out, h("p", { class: "note warn" }, `This did not work: ${e.message}`)); } finally { go.disabled = false; }
+    });
+  } else if (kind === "terms") {
+    const go = h("button", { type: "button", class: "btn btn-primary" }, "Find their phrases");
+    fill(body,
+      h("p", {}, "Words and phrases your studies use that your search does not: the ones much more frequent in the titles and abstracts of your studies than in a random sample of works, which are likely to name your topic. Add the ones that do to a keyword; they are searched and translated like the others. The more relevant studies you give, the better: ten or more work best."),
+      h("label", { for: "tools-ids", class: "tools-label" }, "Your studies"), box, h("p", { class: "note" }, KNOWN_HINT),
+      h("p", { class: "note" }, "It costs one OpenAlex lookup (a tenth of a search) for every 100 of your studies, and one for the random sample of 200 works."),
+      h("div", { class: "save-actions" }, go), out);
+    go.addEventListener("click", async () => {
+      keep();
+      if (!parseIds(box.value).count) { fill(out, h("p", { class: "note warn" }, "No DOIs, PubMed IDs or OpenAlex IDs found in the box.")); return; }
+      go.disabled = true;
+      try {
+        const res = await mineTerms(box.value, ctx.searchedTerms(), busy);
+        ctx.remember("terms", { ...res, input: ctx.input() });
+        fill(out, termsView(res, ctx));
+      } catch (e) { fill(out, h("p", { class: "note warn" }, `This did not work: ${e.message}`)); } finally { go.disabled = false; }
+    });
   } else {
     const go = h("button", { type: "button", class: "btn btn-primary" }, "Find them");
     fill(body,
@@ -511,6 +544,136 @@ function citedView(res, ctx, listOf) {
       ` Read: the references of ${plural(res.read, "result")}.`),
     exportButtons(ctx, records, { extraName: "Cited by your results", extraOf: (r) => counts.get(r.key) || "", name: "cited-by-results" }),
     listOf(res.items, (x) => h("span", { class: `tools-why${x.found ? "" : " tools-miss"}` }, `Cited by ${x.n} of your results · `, x.found ? "found by your search" : h("strong", {}, "not found by your search"))),
+  ];
+}
+
+/* ------------------------------------------------------------------ existing reviews */
+const REVIEW_DESIGNS = ["systematic-review", "meta-analysis", "study-protocol"];
+/* Reviews and protocols on the topic in OpenAlex (its design tags), and PubMed's count with its systematic review
+   filter for the English terms in all fields (NCBI's E-utilities: free, and open to web pages). */
+export async function existingReviews(q, english, onProgress = () => {}) {
+  onProgress("Looking for reviews and protocols in OpenAlex…");
+  const oa = await SOURCES.studies.reviews(q, 50);
+  let pubmed = null;
+  if (english) {
+    onProgress("Counting PubMed's systematic reviews…");
+    const term = `(${english}) AND systematic[sb]`;
+    try {
+      const r = await fetch("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", { method: "POST",
+        body: new URLSearchParams({ db: "pubmed", term, retmode: "json", rettype: "count" }) });
+      const j = await r.json();
+      const count = Number((j.esearchresult || {}).count);
+      if (Number.isFinite(count)) pubmed = { count, term };
+    } catch { /* PubMed did not answer: its count is left out */ }
+  }
+  return { date: today(), total: oa.total, parts: oa.counts.length, records: oa.items, pubmed, english };
+}
+const designNames = (r) => (r.designs || []).filter((d) => REVIEW_DESIGNS.includes(d)).map((d) => DESIGN_NAMES[d]);
+
+function reviewsView(res, ctx, listOf) {
+  const q = encodeURIComponent(ctx.input());
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(res.english); ctx.toast("The search string (English terms) is copied"); } catch { window.prompt("Copy the search string:", res.english); }
+  };
+  return [
+    h("p", { class: "tools-head" }, h("strong", {}, `${fmt(res.total)} ${res.total === 1 ? "review or protocol" : "reviews and protocols"} in OpenAlex`),
+      ` by its design tags${res.parts > 1 ? " (a study two parts of the search find counts twice)" : ""}`,
+      res.pubmed ? [", and ", ctx.link(`https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(res.pubmed.term)}`, `${fmt(res.pubmed.count)} in PubMed`),
+        " with its systematic review filter (English terms, all fields)."] : ". PubMed did not answer."),
+    h("p", {}, "Also search: ", ctx.link("https://www.crd.york.ac.uk/prospero/", "PROSPERO"), " (registered review protocols) · ",
+      ctx.link("https://www.cochranelibrary.com/advanced-search", "Cochrane Library"), " · ",
+      ctx.link(`https://www.epistemonikos.org/en/search?q=${q}`, "Epistemonikos"), " (health) · ",
+      ctx.link(`https://osf.io/search?q=${q}&resourceType=Registration`, "OSF Registries"), " (preregistrations) · ",
+      h("button", { type: "button", class: "link-btn", onclick: copy }, "copy the search string")),
+    res.records.length ? [
+      exportButtons(ctx, res.records, { extraName: "Design (OpenAlex tags)", extraOf: (r) => designNames(r).join(", "), name: "existing-reviews" }),
+      h("p", { class: "note" }, `The ${fmt(res.records.length)} newest:`),
+      listOf(res.records, (r) => h("span", { class: "tools-why" }, designNames(r).join(" · ") || "review"))]
+      : h("p", { class: "note" }, "None tagged in OpenAlex: search the registers above before you decide that none exists."),
+  ];
+}
+/* For "Search details": what the check for existing reviews found. */
+export function reviewsHtml(res, esc) {
+  return `<h2>Existing reviews</h2>
+<p>Checked on ${esc(dayText(res.date))}: ${fmt(res.total)} systematic reviews, meta-analyses and review protocols on the topic in OpenAlex (by its automatic design tags, the search without its filters)${res.pubmed ? `, and ${fmt(res.pubmed.count)} records in PubMed with its systematic review filter: <code>${esc(res.pubmed.term)}</code>` : ""}. [Say which reviews and registered protocols you found, also in PROSPERO, and how this review differs from them.]</p>`;
+}
+
+/* ------------------------------------------------------------------ terms from your studies */
+const STOP = new Set(("a an and are as at be been being but by can could did do does for from had has have he her his how i if in into is it its may "
+  + "might more most no not of on or our she should so such than that the their them then there these they this those through to under was we were "
+  + "what when where which while who whom why will with within would you your also among between both during each either further here however only "
+  + "other over same some very via whether using used use based two three one four five first second new study studies results result methods method "
+  + "conclusions conclusion background objective objectives aim aims purpose findings data analysis compared show shows showed found suggest suggests "
+  + "associated significant significantly respectively improved improve improves improving reduced reduce reduces reducing increased increase "
+  + "increases decreased decrease effect effects effective outcome outcomes participants sample samples group groups total years year level levels "
+  + "high higher low lower rate rates after before across including included across").split(" "));
+/* The phrases of one to three words in a text (none starting or ending with a small word, no numbers). */
+function phrases(text) {
+  const out = new Set();
+  for (const sentence of String(text || "").toLowerCase().split(/[.;:!?()[\]{}"“”]+/)) {
+    const ws = sentence.match(/\p{L}[\p{L}\p{N}'’-]*/gu) || [];
+    for (let n = 1; n <= 3; n++) {
+      for (let i = 0; i + n <= ws.length; i++) {
+        const g = ws.slice(i, i + n);
+        if (STOP.has(g[0]) || STOP.has(g[n - 1]) || (n === 1 && g[0].length < 4)) continue;
+        out.add(g.join(" ").replace(/[’']s/g, ""));
+      }
+    }
+  }
+  return out;
+}
+/* Phrases much more frequent in the reviewer's studies than in a random sample of works, not yet searched. */
+export async function mineTerms(text, searched, onProgress = () => {}) {
+  onProgress("Looking up your studies in OpenAlex…");
+  const { works, missing } = await resolve(text);
+  const own = works.filter((w) => w.full || w.abstract || w.title);
+  if (own.length < 2) throw new Error("it needs at least two of your studies with a title or abstract in OpenAlex");
+  onProgress("Reading a random sample of works to compare with…");
+  const background = await backgroundTexts();
+  const df = (docs) => {
+    const m = new Map();
+    for (const d of docs) for (const p of phrases(d)) m.set(p, (m.get(p) || 0) + 1);
+    return m;
+  };
+  const mine = df(own.map((w) => `${w.title}. ${w.full || w.abstract || ""}`)), bg = df(background);
+  const nY = own.length, nB = Math.max(1, background.length);
+  const needed = Math.max(2, Math.ceil(nY * (nY >= 8 ? 0.25 : 0.34)));
+  const done = searched.map((t) => ` ${norm(t)} `);
+  const covered = (p) => done.some((t) => ` ${norm(p)} `.includes(t));
+  const scored = [...mine].filter(([p, n]) => n >= needed && !covered(p)).map(([p, n]) => {
+    const b = bg.get(p) || 0;
+    const ratio = (n / nY) / ((b + 0.5) / (nB + 1));
+    return { phrase: p, n, bg: b, score: (n / nY) * Math.log(ratio) };
+  }).filter((x) => x.score > 0.4)
+    // of phrases as frequent, the longest first: it makes the shorter ones inside it redundant
+    .sort((a, b) => b.score - a.score || b.phrase.split(" ").length - a.phrase.split(" ").length || b.n - a.n);
+  const kept = [];
+  for (const x of scored) {
+    // a phrase inside a longer one found as often says nothing more, and a longer one around a phrase already listed
+    // is found by searching that phrase
+    if (kept.some((k) => (k.n >= x.n && ` ${k.phrase} `.includes(` ${x.phrase} `)) || ` ${x.phrase} `.includes(` ${k.phrase} `))) continue;
+    kept.push(x);
+    if (kept.length >= 40) break;
+  }
+  return { date: today(), studies: nY, missing, background: nB, terms: kept };
+}
+
+function termsView(res, ctx) {
+  if (!res.terms.length) return h("p", {}, `No phrase stands out in your ${plural(res.studies, "study", "studies")} that the search does not have already. With more of your studies, more can.`);
+  const groups = ctx.groups();
+  const row = (x) => {
+    const pick = h("select", { "aria-label": `Keyword to add “${x.phrase}” to` }, groups.map((g) => h("option", { value: g.id }, g.label)));
+    const add = h("button", { type: "button", class: "btn btn-small", onclick: () => {
+      if (ctx.addTerm(Number(pick.value), x.phrase, `in ${x.n} of ${res.studies} of your studies`)) { add.disabled = true; add.textContent = "Added"; }
+    } }, "Add");
+    return h("li", {}, h("strong", {}, x.phrase), h("span", { class: "tools-meta" }, `in ${x.n} of your ${res.studies} studies · ${x.bg} of ${res.background} random works`),
+      groups.length ? h("span", { class: "tools-actions" }, pick, add) : null);
+  };
+  return [
+    h("p", { class: "tools-head" }, h("strong", {}, `${plural(res.terms.length, "phrase")} your studies use that your search does not.`),
+      ` From ${plural(res.studies, "study", "studies")}${res.missing.length ? ` (${plural(res.missing.length, "identifier")} not in OpenAlex)` : ""}, compared with ${fmt(res.background)} random works in OpenAlex.`),
+    h("p", { class: "note" }, "Many will be words of your topic that are not a way to name it (“participants”, a place, a method): add only those a relevant study could use instead of your terms, and check the results."),
+    h("ol", { class: "tools-list" }, res.terms.map(row)),
   ];
 }
 

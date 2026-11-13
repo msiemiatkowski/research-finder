@@ -5,9 +5,9 @@
    exchange files; decisions go to ASReview, Rayyan or Covidence, or to Google Drive. Projects are kept in this
    browser (IndexedDB). With the visitor's own AI key, each record can show an AI suggestion against the criteria,
    with a one-line reason, next to the reviewer's decision; it never decides, and it does not change the order. */
-import { $, h, fill, fmt, plural, norm, fold, local, toast, parseCsv } from "./util.js?v=43";
-import { readExport } from "./combine.js?v=43";
-import { aiReady, aiLabel, aiServiceName, suggestScreening, estimate, estimateText, promptChars, PROMPTS } from "./ai.js?v=43";
+import { $, h, fill, fmt, plural, norm, fold, local, toast, parseCsv } from "./util.js?v=44";
+import { readExport } from "./combine.js?v=44";
+import { aiReady, aiLabel, aiServiceName, suggestScreening, estimate, estimateText, promptChars, PROMPTS } from "./ai.js?v=44";
 
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 const pause = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -57,6 +57,27 @@ function newProject(records, { name, source, terms = [] }) {
   return { id: `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, source, created: new Date().toISOString(), records: list,
     order: list.map((r) => r.key), decisions: {}, log: [], reasons: local.get("screenReasons", REASONS), reviewer: local.get("reviewer", ""), terms: terms.slice(0, 300),
     others: [], final: {}, version: 1 };
+}
+
+/* A pilot: a random sample of the records, the same for anyone with the same records and seed (the records in the
+   order of their keys, shuffled by a seeded generator), to try the criteria and calibrate the reviewers. */
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {   // mulberry32
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function pilotSample(records, n, seed) {
+  const list = [...records].sort((x, y) => keyOf(x).localeCompare(keyOf(y)));
+  const rnd = seeded(seed);
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list.slice(0, n);
 }
 
 /* ------------------------------------------------------------------ the text model */
@@ -248,12 +269,23 @@ async function start() {
     fill(count, opts.map((n) => h("option", { value: n, selected: n === (cur.total <= 2000 ? cur.total : cur.shown) }, n === cur.total ? `all ${fmt(n)} results` : `the ${fmt(n)} shown`)));
   }
   const name = h("input", { type: "text", id: "screen-reviewer", value: local.get("reviewer", ""), placeholder: "your name or initials", class: "finder-input" });
+  const pilot = h("input", { type: "checkbox", id: "screen-pilot" });
+  const pilotN = h("select", { "aria-label": "Records in the pilot sample" }, [50, 100, 200].map((n) => h("option", { value: n, selected: n === 100 }, String(n))));
+  const seed = h("input", { type: "number", min: "1", max: "999999", value: "42", class: "pilot-seed", "aria-label": "Seed of the random sample" });
   name.addEventListener("change", () => local.set("reviewer", name.value.trim()));
   const begin = async () => {
     try {
       fill(out, h("p", { class: "note pending" }, spinner(), " Getting the results…"));
       const { rows } = await ctx.collect(Number(count.value), (m) => fill(out, h("p", { class: "note pending" }, spinner(), ` ${m}`)));
-      project = newProject(await ctx.english(rows), { name: cur.name, source: `Research Finder search: ${cur.name}`, terms: cur.terms });
+      if (pilot.checked) {
+        const n = Math.min(Number(pilotN.value), rows.length), s = Math.max(1, Math.round(Number(seed.value) || 42));
+        const sample = pilotSample(rows, n, s);
+        project = newProject(await ctx.english(sample), { name: `Pilot sample: ${cur.name}`, terms: cur.terms,
+          source: `a random sample of ${n} of the ${fmt(rows.length)} results of the Research Finder search “${cur.name}” (seed ${s}, drawn on ${dayText(today())}; the same results and seed give the same sample)` });
+        project.pilot = { n, seed: s, of: rows.length };
+      } else {
+        project = newProject(await ctx.english(rows), { name: cur.name, source: `Research Finder search: ${cur.name}`, terms: cur.terms });
+      }
       await saveProject(project);
       model = null;
       screenView();
@@ -290,6 +322,8 @@ async function start() {
     h("p", {}, "Screen titles and abstracts one at a time: include, maybe or exclude, with a reason. After your first include and exclude, the records most like the ones you include come first, so that most relevant records turn up early. It ranks the records; you decide each one. Your decisions stay in this browser until you export or save them."),
     h("label", { for: "screen-reviewer", class: "tools-label" }, "Reviewer"), name,
     cur ? h("div", { class: "cb-row" }, h("strong", {}, `This search: ${cur.name}`), count, h("button", { type: "button", class: "btn btn-small btn-primary", onclick: begin }, "Start screening")) : null,
+    cur ? h("div", { class: "cb-row" }, h("label", { class: "f-option" }, pilot, "A pilot first: a random sample of"), pilotN, h("span", {}, "of them, seed"), seed,
+      h("span", { class: "note" }, "to try your criteria and compare reviewers on a few records before screening them all")) : null,
     h("div", { class: "cb-row" }, h("span", {}, "A file: an export (RIS, PubMed, Web of Science, CSV), or a project another reviewer sent you"),
       h("button", { type: "button", class: "btn btn-small", onclick: () => file.click() }, "Open a file")), file,
     saved.length ? [h("h3", {}, "Projects in this browser"), h("ul", { class: "screen-projects" }, saved.map((p) => {

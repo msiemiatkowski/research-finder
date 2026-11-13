@@ -1,7 +1,7 @@
 /* Checks on studies: their study designs (OpenAlex's automatic tags), retractions and corrections (Crossref, which
    carries the Retraction Watch database, and OpenAlex's own flag), replication attempts (the FORRT Replication
    Database, FReD) and their journals (DOAJ, and Retraction Watch's list of hijacked journals). */
-import { getJSON, local, plural, parseCsv } from "./util.js?v=43";
+import { getJSON, local, plural, parseCsv } from "./util.js?v=44";
 
 const pause = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 
@@ -34,6 +34,7 @@ export const SERIOUS = ["retraction", "partial_retraction", "withdrawal", "remov
 const SOURCE_NAMES = { "retraction-watch": "Retraction Watch", publisher: "publisher" };
 
 const updates = new Map();       // DOI (lower case) -> its notices, [] when Crossref has none
+const versions = new Map();      // DOI -> { published: [DOIs of the article a preprint became], preprints: [DOIs] }
 const asking = new Map();        // DOI -> the request on its way
 let queue = Promise.resolve(), nextAt = 0;
 
@@ -78,10 +79,17 @@ export async function checkUpdates(dois, onProgress) {
   let done = 0;
   for (let i = 0; i < todo.length; i += 100) {
     const batch = todo.slice(i, i + 100);
-    const p = new URLSearchParams({ filter: batch.map((d) => `doi:${d}`).join(","), select: "DOI,updated-by", rows: String(batch.length) });
+    const p = new URLSearchParams({ filter: batch.map((d) => `doi:${d}`).join(","), select: "DOI,updated-by,relation", rows: String(batch.length) });
     const ask = crossref(`https://api.crossref.org/works?${p}`).then((j) => {
       batch.forEach((d) => updates.set(d, []));
-      for (const it of (j.message || {}).items || []) updates.set(String(it.DOI).toLowerCase(), notices(it));
+      for (const it of (j.message || {}).items || []) {
+        const doi = String(it.DOI).toLowerCase();
+        updates.set(doi, notices(it));
+        const rel = it.relation || {};
+        const ids = (type) => (rel[type] || []).filter((x) => x["id-type"] === "doi" && x.id).map((x) => String(x.id).toLowerCase()).filter((x) => x !== doi);
+        const v = { published: [...new Set(ids("is-preprint-of"))], preprints: [...new Set(ids("has-preprint"))] };
+        if (v.published.length || v.preprints.length) versions.set(doi, v);
+      }
     }, () => { /* not answered: the studies stay unchecked */ }).finally(() => {
       batch.forEach((d) => asking.delete(d));
       done += batch.length;
@@ -105,6 +113,19 @@ export function updatesOf(r) {
   return { checked: known !== undefined, list };
 }
 
+/* Other versions of a study that its publisher told Crossref about: the article a preprint became, or the preprint of
+   an article, so that a review screens both and cites the peer-reviewed one. */
+export function versionsOf(r) {
+  const doi = (r.doi || "").toLowerCase();
+  return (doi && checksOn() && versions.get(doi)) || null;
+}
+export function versionsText(r) {
+  const v = versionsOf(r);
+  if (!v) return "";
+  return [v.published.length ? `Published as ${v.published.map((d) => `https://doi.org/${d}`).join(", ")}` : "",
+    v.preprints.length ? `Preprint: ${v.preprints.map((d) => `https://doi.org/${d}`).join(", ")}` : ""].filter(Boolean).join("; ");
+}
+
 export const updatesText = (r) => updatesOf(r).list
   .map((n) => `${n.label}${n.date ? ` ${n.date}` : ""} (${n.sources.join(", ")})${n.notice ? `: https://doi.org/${n.notice}` : ""}`).join("; ");
 
@@ -114,7 +135,7 @@ let replications = null, loading = null;
 /* The replication attempts FReD records (a file this site keeps, built by tools/replications.py), loaded once. */
 export function loadReplications() {
   if (!loading) {
-    loading = getJSON(new URL("../data/replications.json?v=43", import.meta.url).href, { timeout: 30000 })
+    loading = getJSON(new URL("../data/replications.json?v=44", import.meta.url).href, { timeout: 30000 })
       .then((j) => { replications = j; return j; }, () => { loading = null; return null; });
   }
   return loading;

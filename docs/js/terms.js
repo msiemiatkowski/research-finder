@@ -7,7 +7,7 @@
    - machine translations of the English terms into the 39 languages (Wikimedia's MinT), each checked by translating
      it back into English.
    Every term can be switched on or off; translations follow the chosen search languages. */
-import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=43";
+import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=44";
 
 export const LANG_NAMES = {
   pl: "Polish", de: "German", fr: "French", es: "Spanish", pt: "Portuguese", it: "Italian", nl: "Dutch", sv: "Swedish",
@@ -23,7 +23,8 @@ export const LANG_PRIORITY = ["es", "fr", "de", "pt", "zh", "ru", "ja", "it", "p
   "th", "hi"];
 export const SRC_LABEL = { you: "your words", alias: "synonym (Wikidata)", variant: "wording used in studies",
   similar: "related phrase in studies", studies: "keyword of studies (OpenAlex)", wikidata: "translation (Wikidata)",
-  mt: "machine translation (Wikimedia MinT)", ai: "suggested by AI (your key)" };
+  mt: "machine translation (Wikimedia MinT)", ai: "suggested by AI (your key)", spelling: "the other spelling (strategy check)",
+  mined: "a phrase of your studies" };
 /* A term in another language than English (English terms have no language, or "en"). */
 export const isTranslation = (t) => Boolean(LANG_NAMES[t.lang]);
 export const SAMPLE = 200;                  // studies read for the wordings of each keyword
@@ -85,6 +86,15 @@ function addTerm(g, text, src, lang, w, on, extra = {}) {
 /* A term an AI helper suggested: offered, not searched until the visitor switches it on (then translated like the others). */
 export function addSuggested(g, text, why = "", model = "") {
   return addTerm(g, text, "ai", "en", 0.85, false, { why, model });
+}
+
+/* The other spelling of a term (British or American), searched at once; translations would be the same. */
+export function addSpelling(g, text) {
+  return addTerm(g, text, "spelling", "en", 0.95, true, { noTranslate: true });
+}
+/* A phrase frequent in the reviewer's own studies (term mining), searched once added. */
+export function addMined(g, text, why = "") {
+  return addTerm(g, text, "mined", "en", 0.85, true, { why });
 }
 
 /* The terms a search uses: those switched on, translations only in the chosen languages. */

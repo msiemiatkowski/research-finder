@@ -31,7 +31,12 @@ science" finds 2,383 studies; with the 6 other wordings researchers use, 3,129; 
   automated steps to report, next to a pre-filled PRISMA 2020 flow diagram. A saved search can be run again with the
   same queries, adding only the new records to its folder (MECIR C37 asks for searches less than 12 months old). The
   tab "Registered studies" searches ClinicalTrials.gov with the same English terms (status, phase, participants,
-  posted results, linked publications), and studies on the websites of hijacked journals are flagged.
+  posted results, linked publications), and studies on the websites of hijacked journals are flagged. Before a review
+  starts, it looks for existing reviews and protocols on the topic, checks the strategy for common errors (a British
+  or American spelling not searched, a concept with one term, filters guidance advises against) and makes a PRESS
+  packet for its peer review; it finds phrases your own studies use that the search does not; Screening can start
+  with a random pilot sample; preprints and their published versions are linked; and the search can be rerun from
+  Python or R code. A line under the results says how much of OpenAlex's daily allowance is left.
 - **Literature reviews.** How many studies each keyword has, existing reviews (Review filter), the most cited and the
   newest work, related phrases and the topics most often studied with yours, every abstract in one sheet, references
   in more than 2,700 citation styles, RIS, BibTeX and CSL-JSON files for reference managers, COinS for the Zotero
@@ -264,6 +269,33 @@ limited to the files the app creates (`drive.file`).
    remember it, and never goes into saves, exports or addresses. The pages carry a Content-Security-Policy that lets
    scripts come only from this site and Google's sign-in, so that a page holding keys runs no other code.
 
+18. **Before the search: existing reviews and the strategy check.** "Existing reviews and protocols" runs the search
+   without its filters, limited to OpenAlex's `study_designs.id:systematic-review|meta-analysis|study-protocol` and
+   sorted newest first (a search per part), and asks NCBI's E-utilities (`esearch`, POST, CORS-open, keyless) for
+   PubMed's count of the English terms `AND systematic[sb]`, with links to PROSPERO, the Cochrane Library,
+   Epistemonikos and OSF Registries (`strategy.js` and `review.js`). "Check the search strategy" looks at the terms:
+   the other British or American spelling of each English term (a word list and the -ise/-ize, -yse/-yze rules, with
+   their exceptions), which one click adds; concepts with one term; wildcards and operators typed into terms, which
+   OpenAlex searches as text; short terms; keywords no study uses; four or more concepts joined by AND; terms that did
+   not fit; and limits guidance advises against (language, open access, OpenAlex's design tags). The PRESS packet
+   lays the strategy out by the six PRESS elements (McGowan and colleagues 2016): the concepts and every term with its
+   source, each query with its count, the limits and the check, with assessment fields for the peer reviewer.
+19. **Terms from your studies.** The titles and abstracts of "your studies" (looked up in OpenAlex, 1 credit for 100)
+   are compared with a fixed random sample of 200 works with abstracts (`sample=200&seed=7`, 1 credit): phrases of
+   one to three words not starting or ending with a common word, in at least a quarter (a third for fewer than eight)
+   of the studies, ranked by how much more often they occur there than in the sample; a phrase inside a longer one as
+   frequent, or around one already listed, is dropped, and so is anything the search already has. Added phrases are
+   searched and translated like the other English terms.
+20. **Pilot sample, rerun code, versions and the allowance.** OpenAlex's `sample` does not keep to a phrase search (a
+   test for "power posing" returned works on solar power), so a pilot sample is drawn in the page: the records
+   Screening fetches, ordered by their keys and shuffled by a seeded generator (mulberry32), so the same results and
+   seed give the same sample. "Code to run this search again" gives the exact requests, with `api_key=YOUR_KEY` in
+   place of a key, as Python (standard library) and R (jsonlite) scripts that page with `cursor` and write a CSV.
+   Crossref's `relation` (`is-preprint-of`, `has-preprint`), asked for with the retraction check, links preprints and
+   published versions (column "Other versions (Crossref)"). OpenAlex reports its allowance with every answer
+   (`x-ratelimit-limit`, `-remaining`, `-reset`; 1,000 credits a day without a key in November 2026), which the line
+   under the results, the save dialog and Settings show.
+
 ### Limits
 
 - OpenAlex gives anonymous users a small shared allowance (about 100 requests a day per network, each up to 200
@@ -363,7 +395,7 @@ diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted reference
 folder structure, adding new results to a save), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=43`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=44`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

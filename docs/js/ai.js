@@ -11,7 +11,7 @@
    nothing here includes or excludes a study, and each answer says which model gave it. The key stays in this tab
    (sessionStorage) unless the visitor asks to remember it in this browser; it is never put in an address, an export
    or a save. Each use (service, model, date, requests, tokens) goes into "Search details", with the prompts. */
-import { $, h, fill, fmt, plural, local, toast, norm } from "./util.js?v=43";
+import { $, h, fill, fmt, plural, local, toast, norm } from "./util.js?v=44";
 
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 const pause = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));

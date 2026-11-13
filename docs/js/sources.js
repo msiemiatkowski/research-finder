@@ -3,8 +3,8 @@
    { key, source, kind, year, date, title, authors, venue, doi, url, pdf, lang, keywords, abstract, open, cited,
      files (Zenodo: open data files), pid (Dataverse: the dataset's persistent id), osf (OSF: the project's address),
      landing (the repository's page of the dataset) } */
-import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=43";
-import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=43";
+import { getJSON, local, norm, openalexJSON, openalexRefusal, snippet, stripHtml } from "./util.js?v=44";
+import { LANG_PRIORITY, isTranslation, mainWords } from "./terms.js?v=44";
 
 export const KIND_NAMES = { a: "Article", p: "Preprint", v: "Review", b: "Book or chapter", d: "Dataset", t: "Thesis", o: "Other", r: "Registered study", m: "Questionnaire or scale" };
 const SRC_RANK = { you: 0, alias: 1, mt: 1, variant: 2, similar: 3, studies: 3 };
@@ -264,6 +264,32 @@ export const studies = {
       yield merge(answers.map((a) => (a.status === "fulfilled" ? a.value : [])), q.sort)
         .filter((r) => !seen.has(r.key) && seen.add(r.key));
     }
+  },
+  /* Existing reviews and protocols on the topic: the search, without its other filters, limited to OpenAlex's tags for
+     systematic reviews, meta-analyses and study protocols, newest first (one search per part: 10 credits each). */
+  async reviews(q, size = 50) {
+    const filters = { ...q.filters, kinds: [], designs: ["systematic-review", "meta-analysis", "study-protocol"], from: "", to: "", open: false, langs: [],
+      countries: [], south: false, cites: "" };
+    const lists = [], counts = [];
+    for (const search of studies.queries(q).parts) {
+      const p = openalexQuery({ ...q, filters, sort: "new" }, search);
+      p.set("per-page", String(size));
+      const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 30000 });
+      counts.push(j.meta.count);
+      lists.push(j.results.map(fromOpenAlex));
+    }
+    return { total: counts.reduce((a, b) => a + b, 0), counts, items: merge(lists, "new").slice(0, size) };
+  },
+  /* The requests of the search as OpenAlex API addresses, for code that runs it again: the key, if one is set, is
+     replaced by YOUR_KEY, and only a few fields are asked for. */
+  requests(q) {
+    return studies.queries(q).parts.map((search) => {
+      const p = openalexQuery({ ...q, sort: "rel" }, search);
+      if (p.has("api_key")) p.set("api_key", "YOUR_KEY");
+      p.set("select", "id,doi,display_name,publication_year,type,language");
+      p.set("per-page", "200");
+      return { url: `https://api.openalex.org/works?${p}`, count: partCount.get(openalexQuery(q, search).toString()) };
+    });
   },
   /* Which of these works (OpenAlex IDs) the search finds, with its filters: one search per part of the query for each
      100 works (each a search: 10 credits). */
@@ -881,6 +907,19 @@ export const regional = {
     }
   },
 };
+
+/* A random sample of 200 works with an abstract from all of OpenAlex (the same sample every time: seed 7), the
+   background against which the phrases of the reviewer's studies are compared (a list: 1 credit). */
+export async function backgroundTexts() {
+  const p = openalexParams();
+  p.set("sample", "200");
+  p.set("seed", "7");
+  p.set("filter", "has_abstract:true");
+  p.set("per-page", "200");
+  p.set("select", "display_name,abstract_inverted_index");
+  const j = await openalexJSON(`https://api.openalex.org/works?${p}`, { timeout: 30000 });
+  return (j.results || []).map((w) => `${w.display_name || ""}. ${abstractOf(w.abstract_inverted_index)}`);
+}
 
 export const SOURCES = { studies, data: datasets, trials, regional };
 

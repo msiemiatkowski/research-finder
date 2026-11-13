@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=43">
+  <link rel="stylesheet" href="style.css?v=44">
 </head>
 <body>
   <header class="top">
@@ -52,7 +52,9 @@
         hijacked journals from Google Sheets (docs.google.com) about once a day, which sends Google nothing about your
         search (Settings can turn both off). The replications of studies come from a copy
         of the FORRT Replication Database kept on this site, so looking them up sends nothing anywhere. The DOIs and
-        PubMed IDs of your studies (the ones you add or paste for the review tools) are looked up in OpenAlex. When you ask
+        PubMed IDs of your studies (the ones you add or paste for the review tools) are looked up in OpenAlex.
+        “Existing reviews and protocols” sends the search's English terms to PubMed (NCBI's E-utilities) for a count of
+        its systematic reviews, and “Terms from your studies” also reads a random sample of works from OpenAlex. When you ask
         for a study's reference (“Cite”) or for a reference list, its DOI and the citation style are sent to the DOI
         Foundation's citation formatter (<a href="https://citation.doi.org">citation.doi.org</a>). When you save a search, the DOIs of the
         studies are also sent to <a href="https://www.semanticscholar.org">Semantic Scholar</a> to find open versions of

@@ -84,6 +84,22 @@ export const local = {
   },
 };
 
+/* What is left of OpenAlex's daily allowance, as it says in the headers of every answer: { limit, remaining, used,
+   resetAt, keyed, at }. Without a key the allowance (1,000 credits a day in November 2026) is shared by everyone on
+   the network; a search costs 10 credits, a list by identifier 1, a single record nothing. */
+let allowance = null;
+const allowanceListeners = new Set();
+export const openalexAllowance = () => allowance;
+export const onAllowance = (f) => allowanceListeners.add(f);
+function noteAllowance(url, resp) {
+  if (!/^https:\/\/api\.openalex\.org\//.test(url)) return;
+  const n = (k) => { const v = resp.headers.get(k); return v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v); };
+  const limit = n("x-ratelimit-limit"), remaining = n("x-ratelimit-remaining");
+  if (limit == null || remaining == null) return;
+  allowance = { limit, remaining, used: n("x-ratelimit-credits-used"), resetAt: Date.now() + (n("x-ratelimit-reset") || 0) * 1000, keyed: /[?&]api_key=/.test(url), at: Date.now() };
+  for (const f of allowanceListeners) { try { f(allowance); } catch { /* a listener's own problem */ } }
+}
+
 /* fetch() with a time limit and readable errors; answers are cached for the session. */
 const cache = new Map();
 export async function getJSON(url, { timeout = 20000, headers, cacheable = true } = {}) {
@@ -98,6 +114,7 @@ export async function getJSON(url, { timeout = 20000, headers, cacheable = true 
   } finally {
     clearTimeout(timer);
   }
+  noteAllowance(url, resp);
   if (!resp.ok) {
     let detail = "";
     try { detail = (await resp.text()).slice(0, 200); } catch { /* none */ }
