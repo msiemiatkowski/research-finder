@@ -109,8 +109,10 @@ limited to the files the app creates (`drive.file`).
 ## How it works
 
 1. **Synonyms.** For each comma-separated keyword the app looks for a Wikidata item with exactly that name (or that
-   synonym), skipping publications and people, and takes its English synonyms and its names in other languages
-   (synonyms that are only part of the name, which are broader, are left out).
+   synonym), in Wikidata's order, skipping items without a description and publications, people, groups, places and
+   works that share the name ("Self Esteem", a British musician; "Mindfulness", a piece of music), and takes its
+   English synonyms and its names in other languages (synonyms that are only part of the name, which are broader, are
+   left out).
 2. **The wordings studies use.** The app reads the titles and abstracts of the 200 studies in OpenAlex that match the
    keyword best (one request) and collects the phrases of two to five words that contain all of the keyword's words,
    in any form and order, with at most one more word: for "trust in science", "trust in scientists" and
@@ -296,6 +298,17 @@ limited to the files the app creates (`drive.file`).
    (`x-ratelimit-limit`, `-remaining`, `-reset`; 1,000 credits a day without a key in November 2026), which the line
    under the results, the save dialog and Settings show.
 
+21. **Results per search language, accessibility and a settings backup.** For each result, the languages whose terms
+   are in its title or abstract are found keyword by keyword with the same matching as "Check your search" (the words
+   in order, a few endings ignored, characters for scripts without spaces); with "all keywords" a result depends on a
+   language when a keyword is matched only through it, with "any keyword" when every keyword it matches is. Review tools
+   show it for the results loaded, and Search details for all the results saved. The page follows WCAG 2.2 AA:
+   targets of at least 24 pixels, menus with `aria-expanded` that close with Escape, a live region that reads out the
+   number of results, `scroll-padding` so that sticky bars do not hide the focus, headings for the results, contrast
+   measured in both modes, and reduced motion. A backup of the settings is every `rf.*` item in localStorage except
+   caches, as a JSON file or "Research Finder settings.json" in the Drive folder; the OpenAlex key and CiNii ID go in
+   only when asked, AI and Zotero keys never, and putting a backup back asks first and reloads the page.
+
 ### Limits
 
 - OpenAlex gives anonymous users a small shared allowance (about 100 requests a day per network, each up to 200
@@ -395,7 +408,7 @@ diagram), `cite.js` (library links, COinS, BibTeX, CSL-JSON, formatted reference
 folder structure, adding new results to a save), `main.js` (the search page), `landing.js` (the tabs of the front page) and
 `util.js`. The front page's worked example ("trust in science") is written into `docs/index.html` with the numbers
 of a real search; run it again and update them when they age. Module imports carry a version
-(`?v=44`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
+(`?v=45`); change it in every file at once when publishing changes, so that browsers do not mix old and new modules.
 
 The replications come from the [FORRT Replication Database](https://forrt.org/replication-hub/) (FReD; data
 CC BY 4.0), which FORRT rebuilds every week. `python3 tools/replications.py` downloads its current data and rewrites

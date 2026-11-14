@@ -13,8 +13,8 @@
        Papers/            the open PDFs the browser may download
        Datasets/<title>/  the open data files of each dataset
      and, each time the search is run again, "New results <date>" (a sheet and a RIS file) with only the new ones. */
-import { CONFIG } from "../config.js?v=44";
-import { parseCsv } from "./util.js?v=44";
+import { CONFIG } from "../config.js?v=45";
+import { parseCsv } from "./util.js?v=45";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER = "application/vnd.google-apps.folder";
@@ -297,6 +297,22 @@ async function children(id) {
     page = j.nextPageToken || "";
   } while (page);
   return out;
+}
+
+/* A backup of the visitor's settings, kept in the app's folder as one file, made or replaced. */
+const SETTINGS_FILE = "Research Finder settings.json";
+export async function saveSettingsFile(text) {
+  const root = await appFolder();
+  const blob = new Blob([text], { type: "application/json" });
+  const old = (await children(root)).find((f) => f.name === SETTINGS_FILE);
+  if (old) await replaceContent(old.id, blob);
+  else await upload({ name: SETTINGS_FILE, parents: [root], mimeType: "application/json" }, blob);
+}
+/* The backup's text, or null when there is none. */
+export async function readSettingsFile() {
+  const root = await appFolder();
+  const f = (await children(root)).find((x) => x.name === SETTINGS_FILE);
+  return f ? (await apiRaw(`/drive/v3/files/${f.id}?alt=media`)).text() : null;
 }
 
 /* The searches saved so far, newest first: [{ id, name, created, link }]. */

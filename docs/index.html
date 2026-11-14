@@ -14,9 +14,9 @@
   <meta name="theme-color" content="#151515" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#232323" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23151515'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%23f4f2ed' stroke-width='2.8'/%3E%3Cpath d='M19.4 19.4 25 25' stroke='%23f4f2ed' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='14' r='2.4' fill='%23ff7043'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=44">
-  <script type="module" src="js/main.js?v=44"></script>
-  <script type="module" src="js/landing.js?v=44"></script>
+  <link rel="stylesheet" href="style.css?v=45">
+  <script type="module" src="js/main.js?v=45"></script>
+  <script type="module" src="js/landing.js?v=45"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -418,7 +418,7 @@ ER  - </code></pre>
           </details>
           <details>
             <summary>Can it check my search, or search citations?</summary>
-            <p>Yes, under Review tools above the results. They start from “your studies”: the ones you add with “☆ Add to your studies” under each result, from any search, or paste by DOI or PubMed ID. “Check your search” shows which of them the search retrieves, its relative recall, and for each one it misses the probable reason: a missing term, a filter, or no abstract in OpenAlex. “Citation search” finds their references and the studies that cite them, from OpenAlex’s citation index, and saves them with a record of what was searched. “More like these” finds studies similar to yours, from OpenAlex’s lists of similar works, and marks the ones your search misses. “What your results cite most” lists the works your best-matching results cite, and marks the ones your search misses: often key studies worded differently. “Terms from your studies” finds the phrases your studies use much more often than a random sample of works, and that your search does not. Before you start, “Existing reviews and protocols” looks for reviews of your topic, in OpenAlex by its design tags and in PubMed with its systematic review filter, with links to PROSPERO, the Cochrane Library, Epistemonikos and OSF Registries; and “Check the search strategy” points out common errors (a British or American spelling not searched, a concept with one term, a language limit) and makes a PRESS packet for a librarian’s peer review of the strategy.</p>
+            <p>Yes, under Review tools above the results. They start from “your studies”: the ones you add with “☆ Add to your studies” under each result, from any search, or paste by DOI or PubMed ID. “Check your search” shows which of them the search retrieves, its relative recall, and for each one it misses the probable reason: a missing term, a filter, or no abstract in OpenAlex. “Citation search” finds their references and the studies that cite them, from OpenAlex’s citation index, and saves them with a record of what was searched. “More like these” finds studies similar to yours, from OpenAlex’s lists of similar works, and marks the ones your search misses. “What your results cite most” lists the works your best-matching results cite, and marks the ones your search misses: often key studies worded differently. “Terms from your studies” finds the phrases your studies use much more often than a random sample of works, and that your search does not. “Results per search language” shows which languages’ terms found the results, and how many only a translation found; a save adds the same table for all its results to Search details. Before you start, “Existing reviews and protocols” looks for reviews of your topic, in OpenAlex by its design tags and in PubMed with its systematic review filter, with links to PROSPERO, the Cochrane Library, Epistemonikos and OSF Registries; and “Check the search strategy” points out common errors (a British or American spelling not searched, a concept with one term, a language limit) and makes a PRESS packet for a librarian’s peer review of the strategy.</p>
           </details>
           <details>
             <summary>Does it show retracted studies and replications?</summary>
@@ -481,6 +481,14 @@ ER  - </code></pre>
             <p>Titles and abstracts by default, which is what a systematic search usually reports. A study without an abstract in OpenAlex is then found only by its title. You can search full texts too: that finds more, less precisely.</p>
           </details>
           <details>
+            <summary>What if my browser forgets my settings?</summary>
+            <p>Research Finder keeps your settings, your studies, your library’s links and the translations it has made only in your browser, which loses them when its data is cleared; Safari deletes them after seven days without a visit. Settings › “A backup of your settings” downloads them as a file, or keeps them in your Drive, to put back in this browser or another. Keys are left out, unless you ask for your OpenAlex key and CiNii ID to go in; AI and Zotero keys never do.</p>
+          </details>
+          <details>
+            <summary>Can I use it with a keyboard or a screen reader?</summary>
+            <p>It is built to the Web Content Accessibility Guidelines (WCAG) 2.2, level AA: everything works from the keyboard, with a visible focus that sticky bars do not hide; menus and dialogs say what they are and close with Escape; the number of results is read out when a search finishes; buttons and links are at least 24 pixels; text has strong contrast, most of it at 7:1 or more, in light and dark mode; and animation stops when your system asks for less motion. It has not been checked with every screen reader: if something does not work for you, the contact is below.</p>
+          </details>
+          <details>
             <summary>Who can see my searches and my files?</summary>
             <p>Nobody here. The site has no server, no account and no tracking: your browser talks directly to OpenAlex, the data repositories and Google. Research Finder asks Google only for access to the files it creates itself, so it cannot see anything else in your Drive. The <a href="privacy.html">privacy policy</a> has the details.</p>
           </details>
@@ -520,11 +528,12 @@ ER  - </code></pre>
           <button type="button" class="btn filters-toggle" id="filters-toggle" aria-expanded="false" aria-controls="filters-body">Filters</button>
           <div class="filters-body" id="filters-body"></div>
         </aside>
-        <section class="results-area" aria-label="Search results">
+        <section class="results-area" aria-labelledby="results-heading">
+          <h2 class="visually-hidden" id="results-heading">Search results</h2>
           <div id="terms" class="terms"></div>
           <div id="drive-result" class="drive-result" hidden></div>
           <div id="toolbar" class="toolbar" hidden></div>
-          <ol id="results" class="results"></ol>
+          <ol id="results" class="results" aria-label="Results"></ol>
           <div class="more-row"><button type="button" id="more" class="btn" hidden>Show more</button></div>
         </section>
       </div>
@@ -589,5 +598,6 @@ ER  - </code></pre>
     </div>
   </footer>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div id="announce" class="visually-hidden" role="status" aria-live="polite"></div>
 </body>
 </html>

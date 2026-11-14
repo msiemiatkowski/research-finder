@@ -1,7 +1,7 @@
 /* Checks on studies: their study designs (OpenAlex's automatic tags), retractions and corrections (Crossref, which
    carries the Retraction Watch database, and OpenAlex's own flag), replication attempts (the FORRT Replication
    Database, FReD) and their journals (DOAJ, and Retraction Watch's list of hijacked journals). */
-import { getJSON, local, plural, parseCsv } from "./util.js?v=44";
+import { getJSON, local, plural, parseCsv } from "./util.js?v=45";
 
 const pause = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 
@@ -135,7 +135,7 @@ let replications = null, loading = null;
 /* The replication attempts FReD records (a file this site keeps, built by tools/replications.py), loaded once. */
 export function loadReplications() {
   if (!loading) {
-    loading = getJSON(new URL("../data/replications.json?v=44", import.meta.url).href, { timeout: 30000 })
+    loading = getJSON(new URL("../data/replications.json?v=45", import.meta.url).href, { timeout: 30000 })
       .then((j) => { replications = j; return j; }, () => { loading = null; return null; });
   }
   return loading;

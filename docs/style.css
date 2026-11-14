@@ -137,6 +137,7 @@ h1, h2, h3, h4, h5 { text-wrap: balance; }
 [hidden] { display: none !important; }
 .wrap { max-width: 1200px; margin: 0 auto; padding: 0 28px; }
 .muted { color: var(--muted); }
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .skip { position: absolute; left: -999px; top: 8px; background: var(--surface); color: var(--text); padding: 6px 12px; z-index: 30; border-radius: 6px; }
 .skip:focus { left: 8px; }
 .ic { width: 18px; height: 18px; flex: none; }
@@ -151,7 +152,7 @@ mark { background: var(--mark); color: var(--mark-ink); border-radius: 3px; padd
 .brand svg { width: 26px; height: 26px; color: var(--on-brand); flex: none; }
 .brand .dot { fill: var(--hl); }
 .top-nav { display: flex; align-items: center; gap: 6px 24px; }
-.top-nav a, .nav-btn { color: var(--on-brand-2); text-decoration: none; font-weight: 550; font-size: 15px; background: none; border: 0; padding: 0; transition: color 0.15s; }
+.top-nav a, .nav-btn { color: var(--on-brand-2); text-decoration: none; font-weight: 550; font-size: 15px; background: none; border: 0; padding: 3px 0; transition: color 0.15s; }
 .top-nav a:hover, .nav-btn:hover { color: var(--on-brand); }
 .top :focus-visible, .hero :focus-visible, .cta :focus-visible, .foot :focus-visible { outline-color: var(--hl); }
 body.searching .nav-jump { display: none; }
@@ -180,7 +181,7 @@ body.searching .nav-jump { display: none; }
 .top .btn-drive { background: rgb(255 255 255 / 8%); border-color: rgb(255 255 255 / 42%); color: var(--on-brand); }
 .top .btn-drive:hover { border-color: var(--hl); color: var(--on-brand); }
 .top .btn-drive.on { border-color: var(--hl-bright); color: var(--hl-bright); }
-.link-btn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
+.link-btn { background: none; border: 0; padding: 3px 0; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
 .link-btn:hover { color: var(--accent-strong); }
 
 .chips, .tchips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -497,8 +498,8 @@ body:not(.searching) #about:not([hidden]) + .landing { padding-top: 0; }
 .group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
 .group-label { font-family: var(--serif); font-weight: 600; font-size: 24px; line-height: 1.15; letter-spacing: -0.01em; }
 .group-meta { color: var(--muted); font-size: 14px; }
-.concept-badge { background: var(--accent-soft); color: var(--accent-strong); border-radius: 5px; padding: 1px 8px; font-size: 13px; font-weight: 600; }
-.concept-badge.wd { background: var(--warm-soft); color: var(--warm); text-decoration: none; }
+.concept-badge { background: var(--accent-soft); color: var(--accent-strong); border-radius: 5px; padding: 3px 8px; font-size: 13px; font-weight: 600; }
+.concept-badge.wd { background: var(--warm-soft); color: var(--warm-ink); text-decoration: none; }
 .group-actions { margin-left: auto; display: inline-flex; gap: 4px; }
 .g-row { margin-top: 15px; }
 .g-row-title { color: var(--text-2); margin: 0 0 8px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 9px; }
@@ -560,7 +561,7 @@ body:not(.searching) #about:not([hidden]) + .landing { padding-top: 0; }
 .r-kw button { border: 0; background: var(--surface-2); color: var(--text-2); border-radius: 5px; padding: 2px 9px; font-size: 13px; transition: background-color 0.15s; }
 .r-kw button:hover { background: var(--hl-mid); color: var(--hl-ink); }
 .r-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; font-size: 14px; }
-.r-links a { font-weight: 650; }
+.r-links a { font-weight: 650; padding: 3px 0; }
 /* checks on studies: retraction and correction badges, design tags, replications */
 .r-flags { display: contents; }
 .badge.flag-serious { background: var(--danger); color: var(--danger-ink); }
@@ -607,6 +608,7 @@ a.badge.doaj:hover { color: var(--accent-strong); box-shadow: inset 0 0 0 1px va
 dialog { border: 1px solid var(--text); border-radius: 14px; padding: 0; background: var(--surface); color: var(--text); width: min(700px, calc(100% - 32px)); max-height: calc(100% - 48px); box-shadow: var(--shadow-lg); }
 dialog::backdrop { background: rgb(10 12 10 / 55%); }
 .dialog-inner { padding: 20px 24px 24px; }
+dialog { scroll-padding-top: 84px; }
 .dialog-inner .panel-head { position: sticky; top: 0; z-index: 2; background: var(--surface); margin: -20px -24px 4px; padding: 16px 24px 12px; border-bottom: 1px solid var(--border-strong); }
 .dialog-inner .panel-head h2 { font-family: var(--serif); font-weight: 600; font-size: 24px; letter-spacing: -0.01em; margin: 0; }
 .dialog-inner h3 { font-size: 15.5px; margin: 22px 0 4px; }
@@ -722,7 +724,7 @@ dialog::backdrop { background: rgb(10 12 10 / 55%); }
 .screen-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border-strong); }
 .screen-head h2 { margin: 0; font-family: var(--serif); font-weight: 600; font-size: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .screen-head-tools { display: flex; gap: 8px; flex: none; }
-#screen-body { flex: 1; overflow: auto; padding: 16px 20px 24px; }
+#screen-body { flex: 1; overflow: auto; padding: 16px 20px 24px; scroll-padding-bottom: 200px; }
 .screen-start { max-width: 760px; }
 .screen-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
 .screen-card { border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; background: var(--surface); }

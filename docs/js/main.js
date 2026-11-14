@@ -1,23 +1,23 @@
 /* Research Finder: the page. */
-import { CONFIG } from "../config.js?v=44";
-import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON, openalexAllowance, onAllowance } from "./util.js?v=44";
-import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS, addSuggested, addSpelling, addMined } from "./terms.js?v=44";
+import { CONFIG } from "../config.js?v=45";
+import { $, h, fill, fmt, plural, norm, escapeRe, NO_SPACES, safeUrl, local, toast, openalexJSON, openalexAllowance, onAllowance } from "./util.js?v=45";
+import { LANGS, LANG_NAMES, SRC_LABEL, SAMPLE, parseInput, makeGroup, enrich, activeTerms, isTranslation, translateGroup, METHOD, METHOD_WORDS, addSuggested, addSpelling, addMined } from "./terms.js?v=45";
 import { aiReady, aiLabel, aiSettings, aiReturn, setAiContext, openExtract, openAsk, aiQuestion, howItMatches, suggestTerms, detailsCount, DETAIL_COLUMNS, detailCells,
-  aiDetails } from "./ai.js?v=44";
+  aiDetails } from "./ai.js?v=45";
 import { SOURCES, KIND_NAMES, REPO_NAMES, booleanQuery, repoQueries, maxParts, semanticScholarPdfs, pdfLinks, datasetFiles,
-  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=44";
+  relayAddress, needsRelay, relayed, checkRelay, CT_STATUS_NAMES, STATUS_LABEL, CT_TYPES, phaseText, REGIONAL_NAMES, regionalQueries } from "./sources.js?v=45";
 import { translationsOn, readingLanguage, translateFrom, languageName, knownTitle, translateTitle, translateText, titleLanguage, englishTitle,
-  englishTitles, saveLimit } from "./translate.js?v=44";
+  englishTitles, saveLimit } from "./translate.js?v=45";
 import { driveConfigured, driveConnected, connect, disconnect, saveSearch, onDriveChange, listSaves, readSave, fillSave, addToSave, detailsText,
-  RECORD } from "./drive.js?v=44";
+  RECORD, saveSettingsFile, readSettingsFile } from "./drive.js?v=45";
 import { DESIGN_NAMES, designsOf, designText, checksOn, checkUpdates, updatesOf, updatesText, SERIOUS, loadReplications, replicationsDate,
-  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate, versionsOf, versionsText } from "./checks.js?v=44";
-import { openTools, prismaSvg, checkHtml, reviewsHtml, isMine, toggleMine, mineCount, parseIds } from "./review.js?v=44";
-import { strategyView, pressHtml } from "./strategy.js?v=44";
-import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=44";
-import { openZotero, keyForm } from "./zotero.js?v=44";
-import { openCombine } from "./combine.js?v=44";
-import { openScreening } from "./screen.js?v=44";
+  replicationsOf, replicationText, replicationsCell, loadHijacked, hijackOf, journalText, hijackedDate, versionsOf, versionsText } from "./checks.js?v=45";
+import { openTools, prismaSvg, checkHtml, reviewsHtml, languageYield, languageYieldHtml, isMine, toggleMine, mineCount, parseIds } from "./review.js?v=45";
+import { strategyView, pressHtml } from "./strategy.js?v=45";
+import { coins, libraryLinks, library, resolverBase, proxyBase, bibtexOf, cslOf, openCite } from "./cite.js?v=45";
+import { openZotero, keyForm } from "./zotero.js?v=45";
+import { openCombine } from "./combine.js?v=45";
+import { openScreening } from "./screen.js?v=45";
 
 const LIVE_WAIT = 40000;          // longest wait for the wordings and translations before searching anyway
 const PAGE_SIZE = { studies: 25, data: 8, trials: 25, regional: 10 };
@@ -108,7 +108,17 @@ function show(res, first) {
   for (const r of fresh) list.append(renderRecord(r));
   $("#more").hidden = !more;
   renderToolbar();
+  announce(first ? (results.length ? `${extra.parts > 1 ? "About " : ""}${plural(total, ...SOURCES[state.tab].noun)} found` : "Nothing found")
+    : `${plural(fresh.length, "more result")} shown`);
   runChecks(fresh);
+}
+
+/* What happened, for screen readers (a live region that stays in the page, so that each change is read out). */
+function announce(text) {
+  const el = $("#announce");
+  if (!el) return;
+  el.textContent = "";
+  setTimeout(() => { el.textContent = text; }, 60);
 }
 
 function emptyMessage() {
@@ -760,6 +770,7 @@ function renderToolbar(status) {
         ["Check the search strategy, with a PRESS packet for its peer review", openStrategy],
         ["Check your search against studies it should find", () => openTools("check", toolsCtx)],
         ["Terms from your studies that the search does not use", () => openTools("terms", toolsCtx)],
+        ["Results per search language: what the translations found", () => openTools("languages", toolsCtx)],
         ["Citation search from your studies", () => openTools("chase", toolsCtx)],
         ["More like these: studies similar to yours", () => openTools("similar", toolsCtx)],
         ["What your results cite most", () => openTools("cited", toolsCtx)],
@@ -814,10 +825,22 @@ async function copySearchString() {
 function menu(label, entries, title) {
   const list = h("div", { class: "menu-list", hidden: true });
   for (const [text, go] of entries) list.append(typeof go === "function" ? h("button", { type: "button", onclick: go }, text) : link(go, text));
-  return h("div", { class: "menu" }, h("button", {
-    type: "button", class: "btn btn-small", "aria-haspopup": "true", title,
-    onclick: (e) => { e.stopPropagation(); list.hidden = !list.hidden; if (!list.hidden) document.addEventListener("click", () => { list.hidden = true; }, { once: true }); },
-  }, label), list);
+  const button = h("button", { type: "button", class: "btn btn-small", "aria-haspopup": "true", "aria-expanded": "false", title }, label);
+  const close = (focus) => {
+    list.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+    if (focus) button.focus();
+  };
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = list.hidden;
+    list.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (open) document.addEventListener("click", () => close(false), { once: true });
+  });
+  const wrap = h("div", { class: "menu" }, button, list);
+  wrap.addEventListener("keydown", (e) => { if (e.key === "Escape" && !list.hidden) { e.stopPropagation(); close(true); } });
+  return wrap;
 }
 
 const externalMenu = () => menu("Search elsewhere ▾", [
@@ -1350,7 +1373,8 @@ async function runSave(count, withFiles, maxFile, maxTotal) {
     const res = await saveSearch({
       title, header: header(Boolean(english), checks), rows: rows.map((r, i) => rowOf(r, i, Boolean(english), checks)), ris: risOf(rows, Boolean(english), checks), jobs, maxFile,
       maxTotal: Math.max(maxTotal, maxFile), onProgress: progress,
-      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes, english, checks ? checkStats(rows) : null, count >= total),
+      detailsHtml: (stats) => detailsHtml(rows.length, jobs.length, stats, gotNotes, english, checks ? checkStats(rows) : null, count >= total,
+        state.tab === "studies" || state.tab === "regional" ? languageYield(rows, query()) : null),
       extras: [{ name: "PRISMA flow diagram.svg", type: "image/svg+xml", text: prismaSvg(prismaCounts(rows.length, count >= total, gotNotes)) }],
       record: searchRecord(rows, count >= total && !gotNotes.length),
       onSignIn: signInAgain($("#save-signin")),
@@ -1937,7 +1961,7 @@ function filterTexts() {
   ].filter(Boolean);
 }
 
-function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks = null, savedAll = false) {
+function detailsHtml(nRows, nJobs, stats, gotNotes = [], english = null, checks = null, savedAll = false, yieldRes = null) {
   const f = state.filters, src = SOURCES[state.tab];
   const when = new Date();
   const filters = filterTexts();
@@ -1996,6 +2020,7 @@ ${state.tab === "trials" ? "" : `<p>Files: ${fmt(stats.papers)} PDFs and ${fmt(s
 ${failed ? `<p>Not saved:</p><ul>${failed}</ul>` : ""}
 ${english && english.foreign ? `<h2>Titles in other languages</h2>
 <p>${fmt(english.foreign)} of the results saved have a title in ${readingLanguage() === "en" ? "another language" : `a language other than ${esc(readName())}`}. ${fmt(english.shown)} of them have an automatic ${esc(readName())} translation in the column “${esc(enTitle())}” of “Results”, and in a note in “Results.ris”, made by Wikimedia's open machine translation (MinT)${readingLanguage() === "en" ? "" : ", through English for titles in a third language,"} and checked by translating it back${english.failed ? `; ${fmt(english.failed)} did not pass that check and have none` : ""}${english.same ? `; ${fmt(english.same)} needed none, as their title says it in ${esc(readName())} too` : ""}${english.missing ? `; ${fmt(english.missing)} were not translated, because MinT did not answer or a save translates at most ${fmt(saveLimit())}` : ""}. These are machine translations, not professional ones: use them to see what a study is about, and the original titles to screen and to cite.</p>` : ""}
+${yieldRes && yieldRes.rows.length > 1 ? languageYieldHtml(yieldRes, esc) : ""}
 ${checks ? checksHtml(checks) : ""}
 ${state.tab === "studies" && review.overview && review.overview.signature === searchSignature() ? overviewHtml(review.overview) : ""}
 ${state.tab === "studies" && review.check && review.check.signature === searchSignature() ? checkHtml(review.check, esc) : ""}
@@ -2092,6 +2117,67 @@ function renderFilters() {
 }
 
 /* ------------------------------------------------------------------ settings, about */
+/* ------------------------------------------------------------------ a backup of the settings */
+/* Everything Research Finder keeps in this browser (rf.*), as one file: settings, your studies, the library links, the
+   remembered translations. Keys go in only when asked (the OpenAlex key and CiNii ID), the AI and Zotero keys never;
+   caches that come back by themselves are left out. Safari deletes what a site keeps after seven days without a visit,
+   and clearing a browser's data does too. */
+const NEVER = /^rf\.(aiKey\.|zoteroKey$)/, ASKED = /^rf\.(openalexKey|ciniiAppId)$/, MEMORY = /^rf\.(mt|tt)$/, CACHES = /^rf\.(hijacked|aiPrices)$/;
+function settingsBackup({ memory = true, keys = false } = {}) {
+  const items = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith("rf.") || NEVER.test(k) || CACHES.test(k) || (MEMORY.test(k) && !memory) || (ASKED.test(k) && !keys)) continue;
+      items[k] = localStorage.getItem(k);
+    }
+  } catch { /* private window */ }
+  return JSON.stringify({ app: "Research Finder", type: "settings-backup", version: 1, saved: new Date().toISOString(), items });
+}
+/* Puts a backup's settings back (asking first) and reloads the page; the number put back, or 0. */
+function restoreSettings(text) {
+  let j = null;
+  try { j = JSON.parse(text); } catch { /* not JSON */ }
+  if (!j || j.app !== "Research Finder" || j.type !== "settings-backup" || !j.items || typeof j.items !== "object") throw new Error("this is not a settings backup of Research Finder");
+  const keys = Object.keys(j.items).filter((k) => k.startsWith("rf.") && !NEVER.test(k) && typeof j.items[k] === "string");
+  const when = new Date(j.saved).toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  if (!confirm(`Put back the settings of this backup (${when})? They replace the ones in this browser, and the page reloads.`)) return 0;
+  try { for (const k of keys) localStorage.setItem(k, j.items[k]); } catch { throw new Error("this browser does not let the page keep settings (private window?)"); }
+  setTimeout(() => location.reload(), 300);
+  return keys.length;
+}
+function backupForm() {
+  const memory = h("input", { type: "checkbox", checked: true }), keys = h("input", { type: "checkbox" });
+  const status = h("p", { class: "note", role: "status" });
+  const text = () => settingsBackup({ memory: memory.checked, keys: keys.checked });
+  const restore = (t) => { try { const n = restoreSettings(t); if (n) fill(status, `${plural(n, "setting")} put back; the page reloads.`); } catch (e) { fill(status, `Not put back: ${e.message}.`); } };
+  const file = h("input", { type: "file", accept: ".json,application/json", hidden: true });
+  file.addEventListener("change", async () => { const f = file.files[0]; file.value = ""; if (f) restore(await f.text()); });
+  const drive = driveConfigured() ? [
+    h("button", { type: "button", class: "btn btn-small", onclick: async (e) => {
+      e.target.disabled = true;
+      fill(status, spinner(), " Saving the backup to your Drive…");
+      try { await saveSettingsFile(text()); fill(status, "Saved in your Drive, in the folder “Research Finder”, as “Research Finder settings.json”."); }
+      catch (err) { fill(status, `Not saved: ${err.message}.`); } finally { e.target.disabled = false; }
+    } }, "Save to my Drive"),
+    h("button", { type: "button", class: "btn btn-small", onclick: async (e) => {
+      e.target.disabled = true;
+      fill(status, spinner(), " Reading the backup in your Drive…");
+      try { const t = await readSettingsFile(); if (t == null) fill(status, "There is no backup in your Drive yet."); else restore(t); }
+      catch (err) { fill(status, `Not read: ${err.message}.`); } finally { e.target.disabled = false; }
+    } }, "Restore from my Drive")] : [];
+  return [
+    h("p", { class: "note" }, "Research Finder keeps your settings, your studies, your library's links and the translations it has made only in this browser. Clearing the browser's data deletes them, and so does Safari after seven days without a visit. A backup keeps them in a file, or in your Drive, to put back here or in another browser. Screening projects are exported on their own (Screening › Project for a second reviewer)."),
+    h("label", { class: "f-option" }, memory, "With the translations made so far (a larger file)"),
+    h("label", { class: "f-option" }, keys, "With my OpenAlex key and CiNii application ID"),
+    h("p", { class: "note" }, "AI and Zotero keys are never in a backup."),
+    h("div", { class: "tools-actions" },
+      h("button", { type: "button", class: "btn btn-small", onclick: () => downloadFile(`research-finder-settings-${fileDate()}.json`, text(), "application/json", "Settings backup downloaded") }, "Download a backup"),
+      h("button", { type: "button", class: "btn btn-small", onclick: () => file.click() }, "Restore from a file"), drive),
+    file, status,
+  ];
+}
+
 /* The languages results can be translated into: English and the 39 the search uses, the browser's own marked. */
 function readSelect() {
   const own = (navigator.languages || [navigator.language || ""]).map((l) => { const b = String(l).toLowerCase().split("-")[0]; return b === "nb" || b === "nn" ? "no" : b; })
@@ -2164,6 +2250,8 @@ function openSettings(focus) {
     h("p", { class: "note" }, "The start of the address your library uses to open publishers' pages, usually ending in “login?url=” or “?url=”; or paste a whole link that goes through it."),
     libStatus,
     h("h3", {}, "Google Drive"), drive, earlier,
+    h("h3", {}, "A backup of your settings"),
+    backupForm(),
     h("h3", {}, h("label", { for: "set-relay" }, "File relay (optional)")),
     h("p", { class: "note" }, "OSF and figshare do not let web pages download their files, and neither do many publishers for their open-access PDFs, so Research Finder lists those with their links. A file relay copies them into your Drive too: a small program that you run on your own free Cloudflare account. It fetches each file and passes it straight on, keeping nothing. You decide whether to set one up; its address is kept only in this browser."),
     h("div", { class: "relay-row" }, relay, h("button", { type: "button", class: "btn btn-small", onclick: check }, "Check"),
@@ -2275,7 +2363,7 @@ function renderAbout() {
     h("h3", {}, "Checks on the studies"),
     h("p", {}, "Each study shows the design OpenAlex tags automatically from its title and abstract (randomized controlled trial, observational study, systematic review, meta-analysis, study protocol and others), and the filter “Study design” finds them; the tags are rarely wrong, but many studies have none. Studies that were retracted, withdrawn, corrected or given an expression of concern are marked, from Crossref's update notices, which include the Retraction Watch database. Studies with replication attempts recorded in the FORRT Replication Database, most of them in psychology, list them with their outcomes. A preprint that its publisher links to the article it became says “Published as”, and an article with a preprint says so, so that both are screened and the peer-reviewed one cited."),
     h("h3", {}, "Review tools"),
-    h("p", {}, "The review tools start from your studies: the ones you add with “☆ Add to your studies” under each result, or paste by DOI, PubMed ID or OpenAlex ID. “Check your search” shows which of them the search retrieves (its relative recall) and why it misses the others. “Citation search” finds their references and the studies that cite them, in OpenAlex's citation index. “More like these” finds the studies most similar to them, from OpenAlex's lists of similar works, and marks the ones your search misses. “What your results cite most” lists the works your best-matching results cite most often and marks the ones your search does not find. “Terms from your studies” finds the phrases your studies use much more often than a random sample of works, and that your search does not, to add to a keyword. Before you start, “Existing reviews and protocols” looks for reviews on your topic (OpenAlex's design tags and PubMed's systematic review filter), and “Check the search strategy” looks for common errors, such as a British or American spelling not searched, a concept with one term, or a filter guidance advises against, and makes a PRESS packet for the strategy's peer review. Under Export, “Code to run this search again” gives the same requests in Python and R."),
+    h("p", {}, "The review tools start from your studies: the ones you add with “☆ Add to your studies” under each result, or paste by DOI, PubMed ID or OpenAlex ID. “Check your search” shows which of them the search retrieves (its relative recall) and why it misses the others. “Citation search” finds their references and the studies that cite them, in OpenAlex's citation index. “More like these” finds the studies most similar to them, from OpenAlex's lists of similar works, and marks the ones your search misses. “What your results cite most” lists the works your best-matching results cite most often and marks the ones your search does not find. “Terms from your studies” finds the phrases your studies use much more often than a random sample of works, and that your search does not, to add to a keyword. “Results per search language” shows which languages' terms found the results, and how many were found only through a translation. Before you start, “Existing reviews and protocols” looks for reviews on your topic (OpenAlex's design tags and PubMed's systematic review filter), and “Check the search strategy” looks for common errors, such as a British or American spelling not searched, a concept with one term, or a filter guidance advises against, and makes a PRESS packet for the strategy's peer review. Under Export, “Code to run this search again” gives the same requests in Python and R."),
     h("h3", {}, "Overview of the results"),
     h("p", {}, "“Overview”, above the results, counts all of them with OpenAlex: by year, type and language, by the countries of the authors' institutions and whether an author works in the Global South, by journal, and by open access. Each bar filters the results by it, so that, for example, the studies with an author in the Global South can be screened on their own."),
     h("h3", {}, "Regional databases and questionnaires"),

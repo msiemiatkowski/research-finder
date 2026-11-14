@@ -3,10 +3,11 @@
    and the PRISMA 2020 flow diagram. Every OpenAlex request here is a list
    by identifier (1 credit) unless it says otherwise; a check of what the search finds costs a search (10 credits) per
    part of the query. */
-import { $, h, fill, fmt, plural, norm, local, NO_SPACES } from "./util.js?v=44";
-import { SOURCES, KIND_NAMES, worksByIds, citingWorks, backgroundTexts } from "./sources.js?v=44";
-import { DESIGN_NAMES } from "./checks.js?v=44";
-import { openCite } from "./cite.js?v=44";
+import { $, h, fill, fmt, plural, norm, local, NO_SPACES } from "./util.js?v=45";
+import { SOURCES, KIND_NAMES, worksByIds, citingWorks, backgroundTexts } from "./sources.js?v=45";
+import { DESIGN_NAMES } from "./checks.js?v=45";
+import { LANG_NAMES } from "./terms.js?v=45";
+import { openCite } from "./cite.js?v=45";
 
 const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 const today = () => new Date().toISOString().slice(0, 10);
@@ -294,7 +295,7 @@ export function openTools(kind, ctx) {
   const d = $("#tools");
   const body = $("#tools-body");
   const title = { check: "Check your search", chase: "Citation search", cited: "What your results cite most", similar: "More like these", mine: "Your studies",
-    reviews: "Existing reviews and protocols", terms: "Terms from your studies" }[kind];
+    reviews: "Existing reviews and protocols", terms: "Terms from your studies", languages: "Results per search language" }[kind];
   fill($("#tools-title"), title);
   const out = h("div", { class: "tools-out", role: "status", "aria-live": "polite" });
   const busy = (msg) => fill(out, h("p", { class: "note pending" }, spinner(), msg));
@@ -381,6 +382,12 @@ export function openTools(kind, ctx) {
       h("label", { for: "tools-ids", class: "tools-label" }, "Your studies"), box, h("p", { class: "note" }, KNOWN_HINT, " Looking them up costs one OpenAlex lookup (a tenth of a search) for every 100."),
       h("div", { class: "save-actions" }, go), out);
     show();
+  } else if (kind === "languages") {
+    const res = languageYield(ctx.results(), ctx.query());
+    fill(body,
+      h("p", {}, "Which languages of the search found its results: for each result, the languages whose terms are in its title or abstract. A result whose only matching terms for a keyword are in one language was found through that language alone: without its translations, the search would have missed it. It counts the results loaded so far (“Show more” loads more), and costs nothing; a save counts all of them, in Search details."),
+      out);
+    fill(out, languagesView(res));
   } else if (kind === "reviews") {
     const go = h("button", { type: "button", class: "btn btn-primary" }, "Look for them");
     fill(body,
@@ -545,6 +552,64 @@ function citedView(res, ctx, listOf) {
     exportButtons(ctx, records, { extraName: "Cited by your results", extraOf: (r) => counts.get(r.key) || "", name: "cited-by-results" }),
     listOf(res.items, (x) => h("span", { class: `tools-why${x.found ? "" : " tools-miss"}` }, `Cited by ${x.n} of your results · `, x.found ? "found by your search" : h("strong", {}, "not found by your search"))),
   ];
+}
+
+/* ------------------------------------------------------------------ results per search language */
+/* For each result, the languages of the terms in its title or abstract, keyword by keyword (as Research Finder can
+   match them: the words in order, a few endings ignored). With "all keywords", a result depends on a language when a
+   keyword is matched only through that language's terms; with "any keyword", when every keyword it matches is. */
+export function languageYield(records, q) {
+  const langOf = (t) => (LANG_NAMES[t.lang] ? t.lang : "en");
+  const rows = new Map();
+  for (const g of q.groups) for (const t of g) {
+    const l = langOf(t);
+    const row = rows.get(l) || { lang: l, name: l === "en" ? "English" : LANG_NAMES[l], terms: 0, matched: 0, only: 0 };
+    row.terms++;
+    rows.set(l, row);
+  }
+  let attributed = 0, translated = 0;
+  for (const r of records) {
+    const text = textOf(r);
+    const perGroup = q.groups.map((g) => new Set(g.filter((t) => hasTerm(text, t)).map(langOf)));
+    const any = new Set(perGroup.flatMap((s) => [...s]));
+    if (!any.size) continue;
+    attributed++;
+    for (const l of any) rows.get(l).matched++;
+    const only = new Set();
+    if (q.mode === "all") for (const s of perGroup) { if (s.size === 1) only.add([...s][0]); }
+    else {
+      const hit = perGroup.filter((s) => s.size);
+      const langs = new Set(hit.flatMap((s) => [...s]));
+      if (langs.size === 1) only.add([...langs][0]);
+    }
+    for (const l of only) rows.get(l).only++;
+    if ([...only].some((l) => l !== "en")) translated++;
+  }
+  const list = [...rows.values()].sort((a, b) => (a.lang === "en" ? -1 : b.lang === "en" ? 1 : b.only - a.only || b.matched - a.matched || a.name.localeCompare(b.name)));
+  return { date: today(), records: records.length, attributed, translated, none: records.length - attributed, rows: list,
+    silent: list.filter((x) => x.lang !== "en" && !x.matched).map((x) => x.name) };
+}
+
+function languagesView(res) {
+  if (!res.records) return h("p", { class: "note" }, "No results yet.");
+  const gained = res.translated;
+  return [
+    h("p", { class: "tools-head" }, h("strong", {}, `${plural(gained, "result")} of the ${fmt(res.records)} loaded ${gained === 1 ? "was" : "were"} found only through translations.`),
+      ` ${fmt(res.attributed)} have the search's terms in their title or abstract as Research Finder can match them${res.none ? `; ${fmt(res.none)} could not be attributed (no abstract, or OpenAlex matched another form of the words)` : ""}.`),
+    h("div", { class: "ai-table-wrap", tabindex: "0", role: "region", "aria-label": "Results per search language" }, h("table", { class: "ai-table" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Language"), h("th", {}, "Terms searched"), h("th", {}, "Results with its terms"), h("th", {}, "Found only through it"))),
+      h("tbody", {}, res.rows.map((x) => h("tr", { class: x.lang !== "en" && !x.matched ? "ai-unverified" : "" },
+        h("td", {}, x.name), h("td", {}, fmt(x.terms)), h("td", {}, fmt(x.matched)), h("td", {}, fmt(x.only))))))),
+    res.silent.length ? h("p", { class: res.records >= 200 ? "note warn" : "note" }, `None of the ${fmt(res.records)} results loaded has terms in ${res.silent.length === 1 ? "this language" : "these languages"}: ${res.silent.join(", ")}. `,
+      res.records >= 200 ? "A translation may be wrong (check it under Edit terms), or there may be no research in the language." : "That is usual with few results: more of them (a save counts all) will show which languages find nothing at all, perhaps because of a wrong translation.") : null,
+  ];
+}
+/* For "Search details": the same, for all the results saved. */
+export function languageYieldHtml(res, esc) {
+  return `<h2>Results per search language</h2>
+<p>${fmt(res.translated)} of the ${fmt(res.records)} results saved were found only through translations. ${fmt(res.attributed)} have the search's terms in their title or abstract as Research Finder can match them (the words in order, a few endings ignored)${res.none ? `; ${fmt(res.none)} could not be attributed (no abstract, or OpenAlex matched another form of the words)` : ""}. “Found only through it” counts the results whose only matching terms for a keyword are in that language: the search would not have found them without its translations.</p>
+<table border="1" cellpadding="5" cellspacing="0"><tr><th>Language</th><th>Terms searched</th><th>Results with its terms</th><th>Found only through it</th></tr>${res.rows.map((x) => `<tr><td>${esc(x.name)}</td><td>${fmt(x.terms)}</td><td>${fmt(x.matched)}</td><td>${fmt(x.only)}</td></tr>`).join("")}</table>
+${res.silent.length ? `<p>Languages whose terms are in none of the results: ${esc(res.silent.join(", "))}. [Check these translations, or report that no research in these languages was found.]</p>` : ""}`;
 }
 
 /* ------------------------------------------------------------------ existing reviews */

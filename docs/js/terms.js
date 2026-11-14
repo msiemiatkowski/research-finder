@@ -7,7 +7,7 @@
    - machine translations of the English terms into the 39 languages (Wikimedia's MinT), each checked by translating
      it back into English.
    Every term can be switched on or off; translations follow the chosen search languages. */
-import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=44";
+import { getJSON, local, norm, openalexJSON, openalexRefusal } from "./util.js?v=45";
 
 export const LANG_NAMES = {
   pl: "Polish", de: "German", fr: "French", es: "Spanish", pt: "Portuguese", it: "Italian", nl: "Dutch", sv: "Swedish",
@@ -105,6 +105,8 @@ export function activeTerms(g, langsOff) {
 /* ------------------------------------------------------------------ Wikidata */
 const WD = "https://www.wikidata.org/w/api.php";
 const NOT_A_TOPIC = /\b(scientific article|scholarly article|article|journal|periodical|book|thesis|album|film|song|episode|family name|given name|surname|Wikimedia|painting|research project|conference|clinical trial|software|video game|web page|website)\b/i;
+/* People, groups, places and works that share a topic's name ("Self Esteem", a British musician) */
+const NOT_A_CONCEPT = /\b(musician|singer|songwriter|rapper|actor|actress|footballer|politician|painter|poet|composer|novelist|journalist|businessman|businesswoman|businessperson|athlete|comedian|dancer|youtuber|record producer|(basketball|football|tennis|ice hockey) player|band|musical group|boy band|girl group|record label|television series|tv series|web series|sitcom|character in|fictional|novel by|single by|ep by|mixtape|manga|anime|board game|racehorse|ship|village in|town in|city in|municipality in|commune in|river in|mountain in|human settlement|census-designated place|unincorporated community|neighbou?rhood in|football club|sports club|magazine|newspaper|radio station|television channel|airline|recorded by|instrumental|musical work|composition by|play by|painting by|sculpture by|short story|vocal track|track by|space capsule|spacecraft|genus of|species of)\b/i;
 const SCRIPTS = [
   [/[Ѐ-ӿ]/, ["ru", "uk", "bg"]], [/[Ͱ-Ͽ]/, ["el"]], [/[؀-ۿ]/, ["ar", "fa"]], [/[֐-׿]/, ["he"]],
   [/[぀-ヿ]/, ["ja"]], [/[一-鿿]/, ["zh", "ja"]], [/[가-힯]/, ["ko"]], [/[฀-๿]/, ["th"]],
@@ -121,7 +123,8 @@ function guessLanguages(text) {
 /* No letters of another script or alphabet: the words can be taken as English. */
 const looksEnglish = (text) => !SCRIPTS.some(([re]) => re.test(text));
 
-/* The Wikidata item named exactly as typed (or with it as a synonym), not a publication or a person: its English
+/* The Wikidata item named exactly as typed (or with it as a synonym), with a description, and not a publication, a
+   person, a group, a place or a work of art: its English
    synonyms and its names in the other languages. A synonym that is only part of the name is broader ("water" for
    "drinking water") and is left out; in other languages only the name is used, as their synonyms are often broader
    words. */
@@ -130,7 +133,7 @@ async function wikidata(term) {
     const s = await getJSON(`${WD}?action=wbsearchentities&search=${encodeURIComponent(term)}&language=${lang}&uselang=en&type=item&limit=6&format=json&origin=*`);
     const words = norm(term).split(" ").length;
     const hit = (s.search || []).find((x) => norm((x.match || {}).text || x.label) === norm(term)
-      && !NOT_A_TOPIC.test(x.description || "") && norm(x.label || "").split(" ").length <= words + 3);
+      && x.description && !NOT_A_TOPIC.test(x.description) && !NOT_A_CONCEPT.test(x.description) && norm(x.label || "").split(" ").length <= words + 3);
     if (!hit) continue;
     const want = [...LANGS.map((l) => (l === "no" ? "nb" : l)), "en"].join("|");
     const e = await getJSON(`${WD}?action=wbgetentities&ids=${hit.id}&props=labels|aliases|descriptions&languages=${want}&languagefallback=0&format=json&origin=*`);

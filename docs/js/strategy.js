@@ -5,7 +5,7 @@
    terms, typed operators and wildcards), how the concepts combine, the limits and filters, and what did not fit. The
    packet lays the strategy out by PRESS's six elements with room for the reviewer's assessment. Nothing here is sent
    anywhere. */
-import { h, fill, fmt, plural, norm } from "./util.js?v=44";
+import { h, fill, fmt, plural, norm } from "./util.js?v=45";
 
 /* ------------------------------------------------------------------ British and American spellings */
 const PAIRS = `behaviour behavior|behaviours behaviors|behavioural behavioral|colour color|favour favor|favourable favorable|honour honor|
